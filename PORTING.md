@@ -99,3 +99,14 @@ Em palavras simples: leva programas antigos (COBOL, C, C++, Fortran) para a web 
 ## 2026-11-20 追記: ACCEPT FROM DATE/TIME に対応 / ACCEPT FROM DATE/TIME supported
 **日本語**: `ACCEPT x FROM DATE`(YYMMDD)・`DATE YYYYMMDD`・`DAY`(YYDDD)・`DAY YYYYDDD`・`TIME`(HHMMSSCC)・`DAY-OF-WEEK`(月=1)を、Python と Rust の両方に変換できるようになった(時刻は UTC)。単体試験 11 件成功。まだ TODO のまま: SORT/MERGE/SEARCH、EXEC SQL/CICS、索引・相対ファイル、COMP-3 の表現、参照修飾の書き込み、多次元添字、ON SIZE ERROR、BEFORE/AFTER、動的 CALL。
 **English**: `ACCEPT x FROM DATE` (YYMMDD), `DATE YYYYMMDD`, `DAY` (YYDDD), `DAY YYYYDDD`, `TIME` (HHMMSSCC) and `DAY-OF-WEEK` (Monday = 1) now convert to both Python and Rust (UTC). 11 unit tests pass. Still TODO: SORT/MERGE/SEARCH, EXEC SQL/CICS, indexed/relative files, COMP-3 representation, reference-modification writes, multi-dimensional subscripts, ON SIZE ERROR, BEFORE/AFTER, dynamic CALL.
+
+## 現状と完成予定 (2026-11-20) / Status and plan
+### 日本語
+**現状(確認済み)**: COBOL の方言・書式を自動判定し、FastAPI/MFastAPI/Rust+Poem/Rust+RPoem へ変換(Connect)。IF/EVALUATE/PERFORM/GO TO/小数/OCCURS/REDEFINES/88/STRING/UNSTRING/INSPECT(一部)/COPY/CALL/順編成ファイル I/O/ACCEPT FROM DATE・TIME・DAY・DAY-OF-WEEK。単体試験 11 件、Python と Rust の出力一致。
+**完成予定(未了・この順で確認なしに進める)**: ①ON SIZE ERROR(PICTURE の桁数情報が要る) ②INSPECT BEFORE/AFTER ③SORT/MERGE/SEARCH ④索引・相対ファイルと REWRITE/START/DELETE ⑤COMP-3 などのバイナリ表現 ⑥参照修飾の書き込み・多次元添字 ⑦実際のメインフレーム由来の大きなプログラムでの通し ⑧EXEC SQL/CICS(未対応のまま TODO 表示)。
+**約束**: 実機で確かめてから「できた」と書く/未対応は黙って落とさず明示する/秘密は書かない/新しい REST は作らない(Connect のみ)。
+### English
+**Current state (verified)**: Auto-detects the COBOL dialect and format and converts to FastAPI/MFastAPI/Rust+Poem/Rust+RPoem (Connect). Covers IF/EVALUATE/PERFORM/GO TO, decimals, OCCURS, REDEFINES, level 88, STRING/UNSTRING, part of INSPECT, COPY, CALL, sequential file I/O and ACCEPT FROM DATE/TIME/DAY/DAY-OF-WEEK. 11 unit tests; Python and Rust outputs match.
+**Planned (open, continued automatically in this order)**: (1) ON SIZE ERROR (needs per-field PICTURE digit info), (2) INSPECT BEFORE/AFTER, (3) SORT/MERGE/SEARCH, (4) indexed/relative files with REWRITE/START/DELETE, (5) COMP-3 and other binary representations, (6) reference-modification writes and multi-dimensional subscripts, (7) an end-to-end run on large real mainframe programs, (8) EXEC SQL/CICS (stays flagged as TODO).
+**Rules**: say "done" only after checking on a real system; never drop unsupported items silently, always flag them; keep secrets out; no new REST (Connect only).
+
