@@ -336,3 +336,16 @@ Agora `ON SIZE ERROR ... NOT ON SIZE ERROR ... END-xxx` é convertido em `ADD`, 
 ## 2026-11-22 追記: EXEC SQL 指示変数 (JA/EN)
 **日本語**: 指示変数(`:変数:指示変数`)に対応。入力は指示変数が負なら NULL を渡し、`INTO` では NULL の列のとき指示変数に -1(それ以外は 0)を入れて、変数の値は 0/空白にする。NULL は文字列 `SQL_NULL`(`\0NULL`)で表す(Python 標準ハンドラーは sqlite3 の None と相互変換、Rust の自作ハンドラーは同じ文字列を受け取り/返す)。`tests/samples/sql3.cbl` で Python と Rust(疑似ハンドラー)の出力一致を確認。**未了**: `INDICATOR` キーワード形、SQLSTATE/SQLERRM、NEXT 以外の FETCH、動的SQL、EXEC CICS。
 **English**: Added indicator variables (`:var:ind`). On input a negative indicator passes NULL; on `INTO` a NULL column sets the indicator to -1 (else 0) and the variable to 0/spaces. NULL is the string `SQL_NULL` (`\0NULL`): the Python default handler maps it to/from sqlite3 None, and a custom Rust handler receives/returns the same string. Python and Rust (fake handler) match on `tests/samples/sql3.cbl`. **Open**: the `INDICATOR` keyword form, SQLSTATE/SQLERRM, FETCH other than NEXT, dynamic SQL, EXEC CICS.
+
+
+## 2026-11-22 現状と完成予定と課題 / Status, plan and issues
+
+### 日本語
+**現状**: COBOL を Python(FastAPI/MFastAPI)と Rust(Poem/RPoem)へ変換。数値は10の累乗で拡大した整数、ファイルは固定長テキスト。対応済み: INSPECT(TALLYING/REPLACING/LEADING/CHARACTERS)、SEARCH/SEARCH ALL、SORT/MERGE(USING/GIVING と入出力手続き、RELEASE/RETURN)、COMP-3/COMP の記録、EXEC SQL(SELECT INTO・カーソル・SQLCODE・WHENEVER・指示変数)。Python は実 sqlite3 で、Rust は疑似ハンドラーで実行確認。試験20件成功。
+**完成予定**: SQLSTATE/SQLERRM、NEXT 以外の FETCH、動的 SQL(PREPARE/EXECUTE)、表の SORT、COLLATING SEQUENCE、複数項目レコードの READ INTO、真の二分探索 SEARCH ALL、索引/相対ファイル、バイト単位の COMP-3、EXEC CICS。
+**課題**: Rust の SQL は実 DB 接続が無く(C 依存の SQLite を使わない方針)疑似ハンドラーでしか検証していない。COMP-3/2進はファイル入出力で桁の文字として扱う制限がある。未対応の文は黙って落とさず TODO として出力する。
+
+### English
+**Status**: Converts COBOL to Python (FastAPI/MFastAPI) and Rust (Poem/RPoem). Numbers are integers scaled by powers of ten; files are fixed-width text. Done: INSPECT (TALLYING/REPLACING/LEADING/CHARACTERS), SEARCH/SEARCH ALL, SORT/MERGE (USING/GIVING, input/output procedures, RELEASE/RETURN), COMP-3/COMP recorded, EXEC SQL (SELECT INTO, cursors, SQLCODE, WHENEVER, indicator variables). Python verified with real sqlite3, Rust with a fake handler. 20 tests pass.
+**Planned**: SQLSTATE/SQLERRM, FETCH other than NEXT, dynamic SQL (PREPARE/EXECUTE), table SORT, COLLATING SEQUENCE, READ INTO for multi-field records, true binary SEARCH ALL, indexed/relative files, byte-level COMP-3, EXEC CICS.
+**Issues**: Rust SQL has no real DB connection (we avoid C-based SQLite) and is verified only with a fake handler. COMP-3/binary fields are handled as digit characters in file I/O. Unsupported statements are emitted as TODO, never silently dropped.
