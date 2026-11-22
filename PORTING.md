@@ -360,3 +360,8 @@ Agora `ON SIZE ERROR ... NOT ON SIZE ERROR ... END-xxx` é convertido em `ADD`, 
 - `EXEC SQL EXECUTE IMMEDIATE :変数 END-EXEC` に対応しました。SQL 文を変数の中身(前後の空白は除去)から実行し、SQLCODE を更新します(Python・Rust 両方)。文字列定数を直接渡す形は通常の SQL 文として扱います。
 - 試験は23件成功。生成した Python を実行し、CREATE・INSERT・SELECT の結果 `0` と `7` が出ることを確認しました(`tests/samples/sql6.cbl`)。Rust は生成コードの確認のみで、実行は未確認です。
 - 未了: PREPARE/EXECUTE(`?` の引数つき)、EXEC CICS。
+
+## 2026-11-23 追記: PREPARE / EXECUTE ... USING(日本語)
+- `EXEC SQL PREPARE 名 FROM :変数` で SQL 文を名前つきで保存し、`EXEC SQL EXECUTE 名 [USING :a, :b]` で `?` に値を渡して実行できます(Python・Rust 両方)。未準備の名前を実行すると SQLCODE は -518 です。
+- 試験は24件成功。生成した Python を実行し、`INSERT ... VALUES (?)` に 5 を渡して SELECT で 5 が返ることを確認しました(`tests/samples/sql7.cbl`)。Rust は生成コードの確認のみです。
+- 未了: EXEC CICS、`DESCRIBE`/SQLDA を使う完全な動的 SQL。
