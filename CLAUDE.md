@@ -305,3 +305,16 @@ Agora `ON SIZE ERROR ... NOT ON SIZE ERROR ... END-xxx` é convertido em `ADD`, 
 اکنون `ON SIZE ERROR ... NOT ON SIZE ERROR ... END-xxx` در `ADD`، `SUBTRACT`، `MULTIPLY`، `DIVIDE` و `COMPUTE` تبدیل می‌شود: اگر نتیجه از تعداد ارقام PICTURE مقصد بیشتر شود یا مقسوم‌علیه 0 باشد، مقداری انتساب داده نمی‌شود و شاخهٔ خطا اجرا می‌شود؛ در غیر این صورت مقدار انتساب داده می‌شود و شاخهٔ `NOT ON SIZE ERROR` اجرا می‌گردد. همچنین `INSPECT ... TALLYING / REPLACING / CONVERTING` همراه با `AFTER INITIAL a` و `BEFORE INITIAL b` (یکی از آن‌ها یا هر دو) پشتیبانی می‌شود: محدوده درست بعد از اولین a آغاز می‌شود و درست پیش از اولین b پایان می‌یابد؛ اگر a پیدا نشود محدوده خالی است و اگر b پیدا نشود تا انتها ادامه می‌یابد. کدهای تولیدشدهٔ Python و Rust را واقعاً اجرا کردیم: `ADD 5` خروجی `OK1`، `ADD 20` (سرریز) خروجی `OVER2` و `DIVIDE 10 BY 0` خروجی `ZERO` می‌دهد؛ اجرای `REPLACING ALL "X" BY "-" AFTER INITIAL "B" BEFORE INITIAL "D"` روی `"AXBXCXDXE"` نتیجهٔ `AXB-C-DXE` را می‌دهد و خروجی هر دو زبان یکسان بود. ۱۳ آزمون واحد موفق است. **هنوز پشتیبانی نمی‌شود**: شکل‌های دارای چند مقصد، مانند `ADD a b TO c d`، بررسی سرریز ندارند و با `TODO(COBOL_to)` باقی می‌مانند؛ `FOR CHARACTERS` و `LEADING` نیز همچنان `TODO(COBOL_to)` هستند. برنامهٔ باقی‌مانده: SORT/MERGE/SEARCH، فایل‌های اندیس‌دار و نسبی، COMP-3 و EXEC SQL/CICS. فهرست‌های «برنامه‌ریزی‌شده» در بخش‌های زبانی دیگرِ بالا اکنون قدیمی است و به‌روزرسانی روزانهٔ ترجمه‌ها آن را اصلاح خواهد کرد.
 
 </div>
+
+
+## 2026-11-22 現状と完成予定と課題 / Status, plan and issues
+
+### 日本語
+**現状**: COBOL を Python(FastAPI/MFastAPI)と Rust(Poem/RPoem)へ変換。数値は10の累乗で拡大した整数、ファイルは固定長テキスト。対応済み: INSPECT(TALLYING/REPLACING/LEADING/CHARACTERS)、SEARCH/SEARCH ALL、SORT/MERGE(USING/GIVING と入出力手続き、RELEASE/RETURN)、COMP-3/COMP の記録、EXEC SQL(SELECT INTO・カーソル・SQLCODE・WHENEVER・指示変数)。Python は実 sqlite3 で、Rust は疑似ハンドラーで実行確認。試験20件成功。
+**完成予定**: SQLSTATE/SQLERRM、NEXT 以外の FETCH、動的 SQL(PREPARE/EXECUTE)、表の SORT、COLLATING SEQUENCE、複数項目レコードの READ INTO、真の二分探索 SEARCH ALL、索引/相対ファイル、バイト単位の COMP-3、EXEC CICS。
+**課題**: Rust の SQL は実 DB 接続が無く(C 依存の SQLite を使わない方針)疑似ハンドラーでしか検証していない。COMP-3/2進はファイル入出力で桁の文字として扱う制限がある。未対応の文は黙って落とさず TODO として出力する。
+
+### English
+**Status**: Converts COBOL to Python (FastAPI/MFastAPI) and Rust (Poem/RPoem). Numbers are integers scaled by powers of ten; files are fixed-width text. Done: INSPECT (TALLYING/REPLACING/LEADING/CHARACTERS), SEARCH/SEARCH ALL, SORT/MERGE (USING/GIVING, input/output procedures, RELEASE/RETURN), COMP-3/COMP recorded, EXEC SQL (SELECT INTO, cursors, SQLCODE, WHENEVER, indicator variables). Python verified with real sqlite3, Rust with a fake handler. 20 tests pass.
+**Planned**: SQLSTATE/SQLERRM, FETCH other than NEXT, dynamic SQL (PREPARE/EXECUTE), table SORT, COLLATING SEQUENCE, READ INTO for multi-field records, true binary SEARCH ALL, indexed/relative files, byte-level COMP-3, EXEC CICS.
+**Issues**: Rust SQL has no real DB connection (we avoid C-based SQLite) and is verified only with a fake handler. COMP-3/binary fields are handled as digit characters in file I/O. Unsupported statements are emitted as TODO, never silently dropped.
