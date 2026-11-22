@@ -318,3 +318,6 @@ Agora `ON SIZE ERROR ... NOT ON SIZE ERROR ... END-xxx` é convertido em `ADD`, 
 **Status**: Converts COBOL to Python (FastAPI/MFastAPI) and Rust (Poem/RPoem). Numbers are integers scaled by powers of ten; files are fixed-width text. Done: INSPECT (TALLYING/REPLACING/LEADING/CHARACTERS), SEARCH/SEARCH ALL, SORT/MERGE (USING/GIVING, input/output procedures, RELEASE/RETURN), COMP-3/COMP recorded, EXEC SQL (SELECT INTO, cursors, SQLCODE, WHENEVER, indicator variables). Python verified with real sqlite3, Rust with a fake handler. 20 tests pass.
 **Planned**: SQLSTATE/SQLERRM, FETCH other than NEXT, dynamic SQL (PREPARE/EXECUTE), table SORT, COLLATING SEQUENCE, READ INTO for multi-field records, true binary SEARCH ALL, indexed/relative files, byte-level COMP-3, EXEC CICS.
 **Issues**: Rust SQL has no real DB connection (we avoid C-based SQLite) and is verified only with a fake handler. COMP-3/binary fields are handled as digit characters in file I/O. Unsupported statements are emitted as TODO, never silently dropped.
+
+## 2026-11-22 追記: INDICATOR キーワード形 (日本語)
+`:変数 INDICATOR :指示変数` の形を、`:変数:指示変数` と同じに扱うようにしました(パラメーターと `INTO` の両方)。`tests/samples/sql4.cbl` で、Python・Rust とも `sql3.cbl` と同じ出力になることを試験しました(21件成功)。固定形式の72桁を超える行は切り捨てられるため、長い EXEC SQL は折り返して書きます。残り: SQLSTATE・動的SQL・EXEC CICS。
