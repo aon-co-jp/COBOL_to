@@ -340,3 +340,7 @@ Agora `ON SIZE ERROR ... NOT ON SIZE ERROR ... END-xxx` é convertido em `ADD`, 
 - **実装**: `EXEC CICS SEND TEXT FROM(変数 または '文字列')` は表示に、`RETURN` と `ABEND` は終了にします。`READ FILE`・`XCTL`・`SEND MAP` など、ほかの命令は黙って落とさず「未対応」の TODO として残します。
 - 試験は25件成功(`exec_cics_minimal`)。生成した Python の文字列確認までで、画面(BMS マップ)の再現はしていません。
 - 未了: SEND/RECEIVE MAP(BMS)、READ/WRITE FILE、XCTL/LINK、COMMAREA。
+
+- 2026-11-23 追記: `EXEC CICS LINK PROGRAM('X') [COMMAREA(x)]` を CALL へ、`XCTL` は CALL のあと終了へ移すようにしました(PROGRAM が変数の動的指定、SEND/RECEIVE MAP、READ/WRITE FILE は引き続き TODO)。試験25件成功。
+
+- 2026-11-23 update: `EXEC CICS LINK PROGRAM('X') [COMMAREA(x)]` now becomes a CALL, and `XCTL` becomes a CALL followed by a stop (dynamic PROGRAM names, SEND/RECEIVE MAP and READ/WRITE FILE remain TODO). 25 tests pass.
