@@ -347,3 +347,55 @@ Agora `ON SIZE ERROR ... NOT ON SIZE ERROR ... END-xxx` é convertido em `ADD`, 
 - 2026-11-23 追記: `EXEC CICS LINK PROGRAM('X') [COMMAREA(x)]` を CALL へ、`XCTL` は CALL のあと終了へ移すようにしました(PROGRAM が変数の動的指定、SEND/RECEIVE MAP、READ/WRITE FILE は引き続き TODO)。試験25件成功。
 
 - 2026-11-23 update: `EXEC CICS LINK PROGRAM('X') [COMMAREA(x)]` now becomes a CALL, and `XCTL` becomes a CALL followed by a stop (dynamic PROGRAM names, SEND/RECEIVE MAP and READ/WRITE FILE remain TODO). 25 tests pass.
+
+## 2026-11-25 現況・未了 / Status and open items
+
+*日本語・English が基本、ほかの言語は AI 翻訳(ネイティブ確認前)。 / Japanese and English are the base; other languages are AI-translated, not native-checked.*
+
+### 日本語
+
+現状: COBOL の方言・規格・書式を自動判定し、選んだスタックへ変換する道具。最近は EXEC CICS の LINK/XCTL を CALL へ移し、SEND TEXT/RETURN/ABEND の最小対応、動的 SQL(EXECUTE IMMEDIATE・PREPARE・EXECUTE USING)に対応した。残り: Mac・iPhone の実機での確認(ここには実機がありません)。翻訳: AI 翻訳(ja/en 以外)、ネイティブの確認はまだです。
+
+### English
+
+Status: a tool that auto-detects the COBOL dialect, standard and source format and converts to the stack you choose. Recently it ported EXEC CICS LINK/XCTL to CALL, added minimal SEND TEXT/RETURN/ABEND support, and handles dynamic SQL (EXECUTE IMMEDIATE, PREPARE, EXECUTE USING). Open: checks on a real Mac and iPhone (no such devices here). Translations: AI-translated (other than ja/en), not yet checked by native speakers.
+
+### 简体中文
+
+现状:自动判别 COBOL 方言、标准与书写格式,并转换到所选技术栈的工具。最近把 EXEC CICS 的 LINK/XCTL 迁移为 CALL,最小化支持了 SEND TEXT/RETURN/ABEND,并支持动态 SQL(EXECUTE IMMEDIATE、PREPARE、EXECUTE USING)。待办:在真实的 Mac 和 iPhone 上验证(这里没有这些设备)。翻译:由 AI 翻译,尚未经母语者确认。
+
+### 繁體中文
+
+現況:自動判別 COBOL 方言、標準與書寫格式,並轉換到所選技術堆疊的工具。最近把 EXEC CICS 的 LINK/XCTL 移轉為 CALL,以最小範圍支援 SEND TEXT/RETURN/ABEND,並支援動態 SQL(EXECUTE IMMEDIATE、PREPARE、EXECUTE USING)。待辦:在實體 Mac 和 iPhone 上驗證(這裡沒有這些裝置)。翻譯:由 AI 翻譯,尚未經母語人士確認。
+
+### 한국어
+
+현황: COBOL의 방언·표준·소스 형식을 자동으로 판별해 선택한 스택으로 변환하는 도구입니다. 최근 EXEC CICS의 LINK/XCTL을 CALL로 옮겼고, SEND TEXT/RETURN/ABEND를 최소 범위로 지원하며, 동적 SQL(EXECUTE IMMEDIATE, PREPARE, EXECUTE USING)을 처리합니다. 남은 일: 실제 Mac과 iPhone에서의 확인(여기에는 해당 기기가 없습니다). 번역: AI 번역이며 원어민의 확인은 아직 받지 않았습니다.
+
+### Deutsch
+
+Stand: ein Werkzeug, das COBOL-Dialekt, Standard und Quellformat automatisch erkennt und in den gewählten Stack umwandelt. Zuletzt wurden EXEC CICS LINK/XCTL auf CALL abgebildet, SEND TEXT/RETURN/ABEND minimal unterstützt und dynamisches SQL (EXECUTE IMMEDIATE, PREPARE, EXECUTE USING) ergänzt. Offen: Prüfung auf einem echten Mac und iPhone (solche Geräte haben wir hier nicht). Übersetzungen: KI-übersetzt, noch nicht von Muttersprachlern geprüft.
+
+### Français
+
+État : un outil qui détecte automatiquement le dialecte, la norme et le format source COBOL et convertit vers la pile choisie. Récemment, EXEC CICS LINK/XCTL a été porté vers CALL, SEND TEXT/RETURN/ABEND est pris en charge a minima et le SQL dynamique (EXECUTE IMMEDIATE, PREPARE, EXECUTE USING) est géré. Reste à faire : vérifier sur un vrai Mac et un vrai iPhone (nous n'avons pas ces appareils ici). Traductions : faites par IA, pas encore relues par des locuteurs natifs.
+
+### Español
+
+Estado: una herramienta que detecta automáticamente el dialecto, el estándar y el formato fuente de COBOL y convierte a la pila elegida. Hace poco se portó EXEC CICS LINK/XCTL a CALL, se añadió un soporte mínimo de SEND TEXT/RETURN/ABEND y se admite SQL dinámico (EXECUTE IMMEDIATE, PREPARE, EXECUTE USING). Pendiente: comprobar en un Mac y un iPhone reales (aquí no tenemos esos dispositivos). Traducciones: hechas por IA, aún sin revisión de hablantes nativos.
+
+### Português
+
+Situação: uma ferramenta que detecta automaticamente o dialeto, o padrão e o formato-fonte do COBOL e converte para a pilha escolhida. Recentemente portou EXEC CICS LINK/XCTL para CALL, ganhou suporte mínimo a SEND TEXT/RETURN/ABEND e trata SQL dinâmico (EXECUTE IMMEDIATE, PREPARE, EXECUTE USING). Pendente: verificar em um Mac e um iPhone de verdade (não temos esses aparelhos aqui). Traduções: feitas por IA, ainda não revisadas por falantes nativos.
+
+### Русский
+
+Состояние: инструмент, который автоматически определяет диалект, стандарт и формат исходного текста COBOL и преобразует его в выбранный стек. Недавно EXEC CICS LINK/XCTL перенесены на CALL, добавлена минимальная поддержка SEND TEXT/RETURN/ABEND и динамического SQL (EXECUTE IMMEDIATE, PREPARE, EXECUTE USING). Осталось: проверка на настоящих Mac и iPhone (таких устройств у нас здесь нет). Переводы: выполнены ИИ, носители языка их пока не проверяли.
+
+### العربية
+
+الوضع: أداة تكتشف تلقائيًا لهجة COBOL ومعيارها وصيغة المصدر وتحوّلها إلى المكدس الذي تختاره. نُقل مؤخرًا EXEC CICS LINK/XCTL إلى CALL، وأُضيف دعم أدنى لـ SEND TEXT/RETURN/ABEND، ودعم SQL الديناميكي (EXECUTE IMMEDIATE وPREPARE وEXECUTE USING). المتبقي: التحقق على جهازَي Mac وiPhone حقيقيين (لا تتوفر لدينا هذه الأجهزة هنا). الترجمات: أنجزها الذكاء الاصطناعي ولم يراجعها بعدُ متحدثون أصليون.
+
+### فارسی
+
+وضعیت: ابزاری که گویش، استاندارد و قالب متن COBOL را خودکار تشخیص می‌دهد و به پشتهٔ انتخابی تبدیل می‌کند. اخیراً EXEC CICS LINK/XCTL به CALL منتقل شده، پشتیبانی حداقلی از SEND TEXT/RETURN/ABEND افزوده شده و SQL پویا (EXECUTE IMMEDIATE، PREPARE، EXECUTE USING) پشتیبانی می‌شود. باقی‌مانده: بررسی روی Mac و iPhone واقعی (این دستگاه‌ها را اینجا نداریم). ترجمه‌ها: با هوش مصنوعی انجام شده و هنوز گویشوران بومی آن‌ها را بررسی نکرده‌اند.
