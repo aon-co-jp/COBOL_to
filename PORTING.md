@@ -375,3 +375,13 @@ Agora `ON SIZE ERROR ... NOT ON SIZE ERROR ... END-xxx` é convertido em `ADD`, 
 - 2026-11-23 追記: `EXEC CICS LINK PROGRAM('X') [COMMAREA(x)]` を CALL へ、`XCTL` は CALL のあと終了へ移すようにしました(PROGRAM が変数の動的指定、SEND/RECEIVE MAP、READ/WRITE FILE は引き続き TODO)。試験25件成功。
 
 - 2026-11-23 update: `EXEC CICS LINK PROGRAM('X') [COMMAREA(x)]` now becomes a CALL, and `XCTL` becomes a CALL followed by a stop (dynamic PROGRAM names, SEND/RECEIVE MAP and READ/WRITE FILE remain TODO). 25 tests pass.
+
+## 2026-11-25 現況・未了 / Status and open items
+
+### 日本語
+
+現状: COBOL の方言・規格・書式を自動判定し、選んだスタックへ変換する道具。最近は EXEC CICS の LINK/XCTL を CALL へ移し、SEND TEXT/RETURN/ABEND の最小対応、動的 SQL(EXECUTE IMMEDIATE・PREPARE・EXECUTE USING)に対応した。残り: Mac・iPhone の実機での確認(ここには実機がありません)。翻訳: AI 翻訳(ja/en 以外)、ネイティブの確認はまだです。
+
+### English
+
+Status: a tool that auto-detects the COBOL dialect, standard and source format and converts to the stack you choose. Recently it ported EXEC CICS LINK/XCTL to CALL, added minimal SEND TEXT/RETURN/ABEND support, and handles dynamic SQL (EXECUTE IMMEDIATE, PREPARE, EXECUTE USING). Open: checks on a real Mac and iPhone (no such devices here). Translations: AI-translated (other than ja/en), not yet checked by native speakers.
