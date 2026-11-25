@@ -10,15 +10,17 @@ enum Target {
     MFastApi,
     RustPoem,
     RPoem,
+    Java,
 }
 impl Target {
-    const ALL: [Target; 4] = [Target::FastApi, Target::MFastApi, Target::RustPoem, Target::RPoem];
+    const ALL: [Target; 5] = [Target::FastApi, Target::MFastApi, Target::RustPoem, Target::RPoem, Target::Java];
     fn label(self) -> &'static str {
         match self {
             Target::FastApi => "最新Python + 最新FastAPI + HTML5/CSS3(Bootstrap・TypeScript・Node.js は任意で、推薦はしません)",
             Target::MFastApi => "最新Python + 最新MFastAPI + HTML5/CSS3(Bootstrap・TypeScript・Node.js は任意で、推薦はしません)",
             Target::RustPoem => "最新Rust + 最新Poem",
             Target::RPoem => "最新Rust + 最新RPoem (Rust→WASM。Bootstrap・TypeScript・Node.js は使わない設計。詳しくは pl2pl info nojs)",
+            Target::Java => "Java 17 以上(JDK 標準のみ。ファイル入出力・SORT・EXEC SQL・範囲つき INSPECT は未対応で TODO を残す)",
         }
     }
     fn slug(self) -> &'static str {
@@ -27,6 +29,7 @@ impl Target {
             Target::MFastApi => "mfastapi",
             Target::RustPoem => "rust-poem",
             Target::RPoem => "rpoem",
+            Target::Java => "java",
         }
     }
     fn is_python(self) -> bool {
@@ -100,7 +103,31 @@ async fn main() {
 }
 "#;
 
+/// 出力名 → Java のクラス名(英数字のみ、各語の先頭を大文字、先頭に P)
+fn java_class(n: &str) -> String {
+    let mut s = String::from("P");
+    let mut up = true;
+    for c in n.chars() {
+        if c.is_ascii_alphanumeric() {
+            s.push(if up { c.to_ascii_uppercase() } else { c });
+            up = false;
+        } else {
+            up = true;
+        }
+    }
+    s
+}
+
+/// Java 向けの起動用サーバー(JDK 標準 com.sun.net.httpserver、Connect 単純呼び出し、REST なし)
+const SERVER_JAVA: &str = include_str!("server_java.txt");
+
 fn scaffold(t: Target, out: &Path, mods: &[String]) {
+    if t == Target::Java {
+        let entries: String = mods.iter().map(|m| format!("        Map.entry({m:?}, {}::run)", java_class(m))).collect::<Vec<_>>().join(",\n");
+        write(&out.join("src/cobolto/Server.java"), &SERVER_JAVA.replace("__ENTRIES__", &entries));
+        write(&out.join("README.md"), &format!("# COBOL_to 変換結果 (java)\n\n{}\n\n```\njavac -d build src/cobolto/*.java\njava -cp build cobolto.Server\n```\n\nPOST /cobol_to.Program/Run {{\"program\":\"名前\"}}(Connect 単純呼び出し、REST なし)。各クラスは単独でも `java -cp build cobolto.<クラス名>` で動く。\n", t.label()));
+        return;
+    }
     let calls: String = mods.iter().map(|m| format!("    (\"{m}\", programs::{m}::run),\n")).collect();
     if t.is_python() {
         let fw = if t == Target::FastApi { "fastapi" } else { "mfastapi" };
@@ -178,8 +205,15 @@ fn main() {
         let text = convert::expand_copy(&text, d.free_format, &dirs);
         let prog = convert::parse(&text, d.free_format);
         let name: String = rel.with_extension("").to_string_lossy().chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' }).collect();
-        let (code, ext, dir) = if target.is_python() { (convert::to_python(&prog), "py", "programs") } else { (convert::to_rust(&prog), "rs", "src/programs") };
-        write(&out.join(dir).join(format!("{name}.{ext}")), &code);
+        let (code, ext, dir) = if target.is_python() {
+            (convert::to_python(&prog), "py", "programs")
+        } else if target == Target::Java {
+            (format!("package cobolto;\n\n{}", convert::to_java(&prog, &java_class(&name))), "java", "src/cobolto")
+        } else {
+            (convert::to_rust(&prog), "rs", "src/programs")
+        };
+        let file = if target == Target::Java { java_class(&name) } else { name.clone() };
+        write(&out.join(dir).join(format!("{file}.{ext}")), &code);
         mods.push(name);
     }
     if mods.is_empty() {

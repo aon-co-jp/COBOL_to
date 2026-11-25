@@ -2548,6 +2548,7 @@ pub fn parse(src: &str, free: bool) -> Program {
 enum Lang {
     Py,
     Rs,
+    Jv,
 }
 
 fn p10(k: u32) -> String {
@@ -2616,14 +2617,15 @@ fn rescale(code: &str, from: u32, to: u32, rounded: bool, l: Lang) -> String {
         return code.to_string();
     }
     if to > from {
-        return format!("({code} * {})", p10(to - from));
+        return format!("({code} * {}{})", p10(to - from), if l == Lang::Jv { "L" } else { "" });
     }
     let d = p10(from - to);
+    let d = if l == Lang::Jv { format!("{d}L") } else { d };
     match (rounded, l) {
         (true, Lang::Py) => format!("_rdiv({code}, {d})"),
-        (true, Lang::Rs) => format!("rdiv({code}, {d})"),
+        (true, _) => format!("rdiv({code}, {d})"),
         (false, Lang::Py) => format!("_tdiv({code}, {d})"),
-        (false, Lang::Rs) => format!("({code} / {d})"),
+        (false, _) => format!("({code} / {d})"),
     }
 }
 
@@ -2633,6 +2635,7 @@ fn disp(p: &Program, e: &Expr, l: Lang) -> String {
         match l {
             Lang::Py => format!("_fmt({c}, {s})"),
             Lang::Rs => format!("fmt_dec({c}, {s})"),
+            Lang::Jv => format!("fmtDec({c}, {s})"),
         }
     } else {
         c
@@ -2642,7 +2645,10 @@ fn disp(p: &Program, e: &Expr, l: Lang) -> String {
 /// 式 → (コード, 小数桁)。数値は 10^桁 倍した整数。
 fn sx(p: &Program, e: &Expr, l: Lang) -> (String, u32) {
     match e {
-        Expr::Num(n) => lit_num(n),
+        Expr::Num(n) => {
+            let (c, k) = lit_num(n);
+            if l == Lang::Jv { (format!("{c}L"), k) } else { (c, k) }
+        }
         Expr::Str(s) => (format!("{s:?}"), 0),
         Expr::Var(v) => {
             let (b, _, _) = split_lv(v);
@@ -2656,6 +2662,7 @@ fn sx(p: &Program, e: &Expr, l: Lang) -> (String, u32) {
                 match l {
                     Lang::Py => format!("self.{c}[({ic}) - 1]"),
                     Lang::Rs => format!("self.{c}[(({ic}) - 1) as usize]"),
+                    Lang::Jv => format!("self.{c}[(int) (({ic}) - 1)]"),
                 },
                 scale_of(p, &b),
             )
@@ -2671,6 +2678,8 @@ fn sx(p: &Program, e: &Expr, l: Lang) -> (String, u32) {
                     (Lang::Py, None) => format!("str(self.{c})[({sa}) - 1:]"),
                     (Lang::Rs, Some(n)) => format!("format!(\"{{}}\", self.{c}).chars().skip((({sa}) - 1) as usize).take(({n}) as usize).collect::<String>()"),
                     (Lang::Rs, None) => format!("format!(\"{{}}\", self.{c}).chars().skip((({sa}) - 1) as usize).collect::<String>()"),
+                    (Lang::Jv, Some(n)) => format!("sub(S(self.{c}), {sa}, {n})"),
+                    (Lang::Jv, None) => format!("sub(S(self.{c}), {sa}, -1L)"),
                 },
                 0,
             )
@@ -2698,13 +2707,14 @@ fn sx(p: &Program, e: &Expr, l: Lang) -> (String, u32) {
                     if sa == 0 && sb == 0 {
                         match l {
                             Lang::Py => (format!("_tdiv({ca}, {cb})"), 0),
-                            Lang::Rs => (format!("({ca} / {cb})"), 0),
+                            _ => (format!("({ca} / {cb})"), 0),
                         }
                     } else {
                         let k = 4 + sb;
                         match l {
                             Lang::Py => (format!("_tdiv({ca} * {}, {cb})", p10(k)), sa + 4),
                             Lang::Rs => (format!("({ca} * {} / {cb})", p10(k)), sa + 4),
+                            Lang::Jv => (format!("({ca} * {}L / {cb})", p10(k)), sa + 4),
                         }
                     }
                 }
@@ -2716,6 +2726,7 @@ fn sx(p: &Program, e: &Expr, l: Lang) -> (String, u32) {
                     match l {
                         Lang::Py => (format!("({ca} ** {cb})"), sc),
                         Lang::Rs => (format!("({ca}).pow(({cb}) as u32)"), sc),
+                        Lang::Jv => (format!("pow({ca}, {cb})"), sc),
                     }
                 }
             }
@@ -2728,6 +2739,25 @@ fn func(p: &Program, n: &str, args: &[Expr], l: Lang) -> (String, u32) {
     let a0 = a.first().cloned().unwrap_or(("0".into(), 0));
     let list = a.iter().map(|x| x.0.clone()).collect::<Vec<_>>().join(", ");
     let py = l == Lang::Py;
+    if l == Lang::Jv {
+        let x = &a0.0;
+        let len_known = match args.first() {
+            Some(Expr::Var(v) | Expr::Idx(v, _)) => var_of(p, &split_lv(v).0).map(|q| q.width).filter(|w| *w > 0),
+            _ => None,
+        };
+        return match n {
+            "LENGTH" => match len_known { Some(w) => (format!("{w}L"), 0), None => (format!("((long) S({x}).length())"), 0) },
+            "UPPER-CASE" => (format!("S({x}).toUpperCase()"), 0),
+            "LOWER-CASE" => (format!("S({x}).toLowerCase()"), 0),
+            "REVERSE" => (format!("new StringBuilder(S({x})).reverse().toString()"), 0),
+            "MAX" => (format!("max({list})"), a0.1),
+            "MIN" => (format!("min({list})"), a0.1),
+            "ABS" => (format!("Math.abs({x})"), a0.1),
+            "MOD" => (format!("Math.floorMod({x}, {})", a.get(1).map(|q| q.0.clone()).unwrap_or("1L".into())), 0),
+            "NUMVAL" => (format!("num(S({x}))"), 0),
+            _ => (a0.0, 0),
+        };
+    }
     match n {
         "LENGTH" => {
             if let Some(Expr::Var(v) | Expr::Idx(v, _)) = args.first() {
@@ -2760,6 +2790,9 @@ fn cond(p: &Program, c: &Cond, l: Lang) -> String {
         Cond::Cmp(o, a, b) => {
             let (ca, sa) = sx(p, a, l);
             let (cb, sb) = sx(p, b, l);
+            if l == Lang::Jv && !(is_numeric(p, a) && is_numeric(p, b)) {
+                return format!("(S({ca}).compareTo(S({cb})) {o} 0)");
+            }
             if sa != sb && is_numeric(p, a) && is_numeric(p, b) {
                 let s = sa.max(sb);
                 format!("{} {o} {}", rescale(&ca, sa, s, false, l), rescale(&cb, sb, s, false, l))
@@ -2781,6 +2814,7 @@ fn cond(p: &Program, c: &Cond, l: Lang) -> String {
                 (Lang::Rs, "ALPHABETIC-LOWER") => format!("format!(\"{{}}\", {c}).chars().all(|ch| ch.is_lowercase() || ch == ' ')"),
                 (Lang::Rs, "ALPHABETIC-UPPER") => format!("format!(\"{{}}\", {c}).chars().all(|ch| ch.is_uppercase() || ch == ' ')"),
                 (Lang::Rs, _) => format!("format!(\"{{}}\", {c}).chars().all(|ch| ch.is_alphabetic() || ch == ' ')"),
+                (Lang::Jv, k) => format!("isClass(S({c}), {k:?})"),
             }
         }
     }
@@ -2796,6 +2830,7 @@ fn lv(p: &Program, t: &str, l: Lang) -> String {
             match l {
                 Lang::Py => format!("self.{c}[({ic}) - 1]"),
                 Lang::Rs => format!("self.{c}[(({ic}) - 1) as usize]"),
+                Lang::Jv => format!("self.{c}[(int) (({ic}) - 1)]"),
             }
         }
         None => format!("self.{c}"),
@@ -2814,6 +2849,7 @@ fn val_for(p: &Program, t: &str, e: &Expr, l: Lang) -> String {
             match l {
                 Lang::Py => format!("_num({c})"),
                 Lang::Rs => format!("{c}.trim().parse::<i64>().unwrap_or(0)"),
+                Lang::Jv => format!("num(S({c}))"),
             }
         }
     } else {
@@ -2821,6 +2857,7 @@ fn val_for(p: &Program, t: &str, e: &Expr, l: Lang) -> String {
         match l {
             Lang::Py => d,
             Lang::Rs => format!("{d}.to_string()"),
+            Lang::Jv => format!("S({d})"),
         }
     }
 }
@@ -2832,6 +2869,7 @@ fn str_for(p: &Program, t: &str, s: String, l: Lang) -> String {
         match l {
             Lang::Py => format!("_num({s})"),
             Lang::Rs => format!("{s}.trim().parse::<i64>().unwrap_or(0)"),
+            Lang::Jv => format!("num(S({s}))"),
         }
     } else {
         s
@@ -2839,10 +2877,10 @@ fn str_for(p: &Program, t: &str, s: String, l: Lang) -> String {
 }
 
 fn semi(l: Lang) -> &'static str {
-    if l == Lang::Rs {
-        ";"
-    } else {
+    if l == Lang::Py {
         ""
+    } else {
+        ";"
     }
 }
 
@@ -2897,8 +2935,10 @@ fn size_emit(p: &Program, inner: &Stmt, err: &[Stmt], ok: &[Stmt], l: Lang, ind:
     let mut divs = vec![];
     divisors(p, e, l, &mut divs);
     let zero = divs.iter().map(|d| format!("{d} == 0")).collect::<Vec<_>>().join(if py { " or " } else { " || " });
+    let jv = l == Lang::Jv;
+    let _ = jv;
     let over = |v: &str| match width {
-        Some(w) => if py { format!("abs({v}) >= 10 ** {w}") } else { format!("{v}.abs() >= 10i64.pow({w})") },
+        Some(w) => if py { format!("abs({v}) >= 10 ** {w}") } else if l == Lang::Jv { format!("Math.abs({v}) >= pow(10L, {w}L)") } else { format!("{v}.abs() >= 10i64.pow({w})") },
         None => if py { "False".to_string() } else { "false".to_string() },
     };
     if py {
@@ -2912,6 +2952,18 @@ fn size_emit(p: &Program, inner: &Stmt, err: &[Stmt], ok: &[Stmt], l: Lang, ind:
         emit(p, err, l, ind + 1, o);
         o.push_str(&format!("{pad}else:\n{pad}    {tg} = _sv\n"));
         emit(p, ok, l, ind + 1, o);
+    } else if l == Lang::Jv {
+        o.push_str(&format!("{pad}{{\n{pad}long size_v = 0L;\n{pad}boolean size_e;\n"));
+        if zero.is_empty() {
+            o.push_str(&format!("{pad}size_v = {value}; size_e = {};\n", over("size_v")));
+        } else {
+            o.push_str(&format!("{pad}if ({zero}) {{ size_e = true; }} else {{ size_v = {value}; size_e = {}; }}\n", over("size_v")));
+        }
+        o.push_str(&format!("{pad}if (size_e) {{\n"));
+        emit(p, err, l, ind + 1, o);
+        o.push_str(&format!("{pad}}} else {{\n{pad}    {tg} = size_v;\n"));
+        emit(p, ok, l, ind + 1, o);
+        o.push_str(&format!("{pad}}}\n{pad}}}\n"));
     } else {
         o.push_str(&format!("{pad}let mut size_v: i64 = 0;\n"));
         let inner_calc = format!("{{ size_v = {value}; {} }}", over("size_v"));
@@ -2928,6 +2980,17 @@ fn size_emit(p: &Program, inner: &Stmt, err: &[Stmt], ok: &[Stmt], l: Lang, ind:
     }
 }
 
+/// Java 出力でまだ扱わない文(ファイル入出力・SORT・SQL・範囲つき INSPECT)。理由の文字列を返す
+fn java_unsupported(s: &Stmt) -> Option<&'static str> {
+    match s {
+        Stmt::Open(..) | Stmt::Close(..) | Stmt::Read(..) | Stmt::Write(..) => Some("ファイル入出力"),
+        Stmt::SortFile(..) | Stmt::Release(..) | Stmt::Return(..) => Some("SORT"),
+        Stmt::Sql(..) => Some("EXEC SQL"),
+        Stmt::InspectScoped(..) => Some("INSPECT の AFTER/BEFORE"),
+        _ => None,
+    }
+}
+
 fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
     let pad = "    ".repeat(ind);
     if ss.is_empty() {
@@ -2935,7 +2998,14 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
         return;
     }
     let py = l == Lang::Py;
+    let jv = l == Lang::Jv;
     for s in ss {
+        if jv {
+            if let Some(why) = java_unsupported(s) {
+                o.push_str(&format!("{pad}// TODO(COBOL_to): Java出力では未対応の文({why})\n"));
+                continue;
+            }
+        }
         match s {
             Stmt::Display(a) | Stmt::DisplayNoNl(a) => {
                 let nl = matches!(s, Stmt::Display(_));
@@ -2943,16 +3013,17 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                 match l {
                     Lang::Py => o.push_str(&format!("{pad}self.out += \"\".join(str(x) for x in [{}]){}\n", items.join(", "), if nl { " + \"\\n\"" } else { "" })),
                     Lang::Rs => o.push_str(&format!("{pad}self.out += &format!(\"{}{}\", {});\n", "{}".repeat(a.len()), if nl { "\\n" } else { "" }, items.join(", "))),
+                    Lang::Jv => o.push_str(&format!("{pad}self.out.append(\"\"{}){};\n", items.iter().map(|x| format!(" + {x}")).collect::<String>(), if nl { ".append('\\n')" } else { "" })),
                 }
             }
             Stmt::Accept(t) => {
                 let tg = lv(p, t, l);
-                let src = if py { "_accept()".to_string() } else { "read_line()".to_string() };
+                let src = if py { "_accept()".to_string() } else if jv { "readLine()".to_string() } else { "read_line()".to_string() };
                 o.push_str(&format!("{pad}{tg} = {}{}\n", str_for(p, t, src, l), semi(l)));
             }
             Stmt::AcceptSys(t, kind) => {
                 let tg = lv(p, t, l);
-                let src = if py { format!("_sys({kind:?})") } else { format!("sys_val({kind:?})") };
+                let src = if py { format!("_sys({kind:?})") } else if jv { format!("sysVal({kind:?})") } else { format!("sys_val({kind:?})") };
                 o.push_str(&format!("{pad}{tg} = {}{}\n", str_for(p, t, src, l), semi(l)));
             }
             Stmt::Move(src, tg) => {
@@ -2984,13 +3055,14 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                 match l {
                     Lang::Py => o.push_str(&format!("{pad}if {}:\n", cond(p, c, l))),
                     Lang::Rs => o.push_str(&format!("{pad}if {} {{\n", cond(p, c, l))),
+                    Lang::Jv => o.push_str(&format!("{pad}if ({}) {{\n", cond(p, c, l))),
                 }
                 emit(p, th, l, ind + 1, o);
                 if !el.is_empty() {
                     o.push_str(&format!("{pad}{}\n", if py { "else:" } else { "} else {" }));
                     emit(p, el, l, ind + 1, o);
                 }
-                if l == Lang::Rs {
+                if !py {
                     o.push_str(&format!("{pad}}}\n"));
                 }
             }
@@ -2999,6 +3071,21 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                 (Loop::Times(n), Lang::Py) => {
                     o.push_str(&format!("{pad}for _ in range({}):\n", sx(p, n, l).0));
                     emit(p, body, l, ind + 1, o);
+                }
+                (Loop::Times(n), Lang::Jv) => {
+                    o.push_str(&format!("{pad}for (long t{ind} = 0; t{ind} < ({}); t{ind}++) {{\n", sx(p, n, l).0));
+                    emit(p, body, l, ind + 1, o);
+                    o.push_str(&format!("{pad}}}\n"));
+                }
+                (Loop::Until(c), Lang::Jv) => {
+                    o.push_str(&format!("{pad}while (!({})) {{\n", cond(p, c, l)));
+                    emit(p, body, l, ind + 1, o);
+                    o.push_str(&format!("{pad}}}\n"));
+                }
+                (Loop::Varying { var, from, by, until }, Lang::Jv) => {
+                    o.push_str(&format!("{pad}{} = {};\n{pad}while (!({})) {{\n", lv(p, var, l), val_for(p, var, from, l), cond(p, until, l)));
+                    emit(p, body, l, ind + 1, o);
+                    o.push_str(&format!("{pad}    {} += {};\n{pad}}}\n", lv(p, var, l), val_for(p, var, by, l)));
                 }
                 (Loop::Times(n), Lang::Rs) => {
                     o.push_str(&format!("{pad}for _ in 0..({}) {{\n", sx(p, n, l).0));
@@ -3028,6 +3115,7 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
             Stmt::Call(n) => match l {
                 Lang::Py => o.push_str(&format!("{pad}_r = self.p_{n}()\n{pad}if _r:\n{pad}    return _r\n")),
                 Lang::Rs => o.push_str(&format!("{pad}{{ let r = self.p_{n}(); if r != 0 {{ return r; }} }}\n")),
+                Lang::Jv => o.push_str(&format!("{pad}{{ int r = self.p_{n}(); if (r != 0) {{ return r; }} }}\n")),
             },
             Stmt::Thru(a, b) => {
                 let ia = p.paragraphs.iter().position(|x| &x.0 == a);
@@ -3043,6 +3131,7 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
             Stmt::Goto(n) => match l {
                 Lang::Py => o.push_str(&format!("{pad}self.goto = {n:?}\n{pad}return 2\n")),
                 Lang::Rs => o.push_str(&format!("{pad}self.goto = {n:?}.to_string();\n{pad}return 2;\n")),
+                Lang::Jv => o.push_str(&format!("{pad}self.gotoP = {n:?};\n{pad}if (true) return 2;\n")),
             },
             Stmt::Initialize(names) => {
                 for n in names {
@@ -3064,9 +3153,11 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                         (None, Lang::Rs) => format!("format!(\"{{}}\", {})", disp(p, e, l)),
                         (Some(d), Lang::Py) => format!("_upto(str({}), str({}))", disp(p, e, l), sx(p, d, l).0),
                         (Some(d), Lang::Rs) => format!("upto(&format!(\"{{}}\", {}), &format!(\"{{}}\", {}))", disp(p, e, l), sx(p, d, l).0),
+                        (None, Lang::Jv) => format!("S({})", disp(p, e, l)),
+                        (Some(d), Lang::Jv) => format!("upto(S({}), S({}))", disp(p, e, l), sx(p, d, l).0),
                     })
                     .collect();
-                let joined = if py { format!("\"\".join([{}])", items.join(", ")) } else { format!("[{}].concat()", items.join(", ")) };
+                let joined = if py { format!("\"\".join([{}])", items.join(", ")) } else if jv { format!("(\"\" + {})", items.join(" + ")) } else { format!("[{}].concat()", items.join(", ")) };
                 o.push_str(&format!("{pad}{} = {}{}\n", lv(p, tg, l), str_for(p, tg, joined, l), semi(l)));
             }
             Stmt::Unstring(src, d, all, tgs) => {
@@ -3082,6 +3173,13 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                             o.push_str(&format!("{pad}if len(_u) > {k}:\n{pad}    {} = {}\n", lv(p, t, l), str_for(p, t, format!("_u[{k}]"), l)));
                         }
                     }
+                    Lang::Jv => {
+                        o.push_str(&format!("{pad}{{\n{pad}    java.util.List<String> u = split(S({cs}), S({cd}), {all});\n"));
+                        for (k, t) in tgs.iter().enumerate() {
+                            o.push_str(&format!("{pad}    if (u.size() > {k}) {{ {} = {}; }}\n", lv(p, t, l), str_for(p, t, format!("u.get({k})"), l)));
+                        }
+                        o.push_str(&format!("{pad}}}\n"));
+                    }
                     Lang::Rs => {
                         o.push_str(&format!("{pad}{{\n{pad}    let ss = format!(\"{{}}\", {cs});\n{pad}    let dd = format!(\"{{}}\", {cd});\n"));
                         o.push_str(&format!("{pad}    let u: Vec<String> = ss.split(dd.as_str()).filter(|x| {}).map(|x| x.to_string()).collect();\n", if *all { "!x.is_empty()" } else { "true" }));
@@ -3096,6 +3194,10 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                 let t = format!("self.{}", canon(p, tg));
                 let s = |e: &Expr| sx(p, e, l).0;
                 match (op, l) {
+                    (Inspect::Tally(c, pat, lead), Lang::Jv) => o.push_str(&format!("{pad}self.{} += tally(S({t}), {}, {lead});\n", canon(p, c), pat.as_ref().map(|e| format!("S({})", s(e))).unwrap_or("null".into()))),
+                    (Inspect::Replace { lead: true, from, to, .. }, Lang::Jv) => o.push_str(&format!("{pad}{t} = replaceLead(S({t}), S({}), S({}));\n", s(from), s(to))),
+                    (Inspect::Replace { first, from, to, .. }, Lang::Jv) => o.push_str(&format!("{pad}{t} = replaceLit(S({t}), S({}), S({}), {first});\n", s(from), s(to))),
+                    (Inspect::Convert(a, b), Lang::Jv) => o.push_str(&format!("{pad}{t} = convert(S({t}), S({}), S({}));\n", s(a), s(b))),
                     (Inspect::Tally(c, pat, lead), Lang::Py) => o.push_str(&format!("{pad}self.{} += {}\n", canon(p, c), tally_expr(true, &format!("str({t})"), pat.as_ref().map(|e| s(e)).as_deref(), *lead))),
                     (Inspect::Tally(c, pat, lead), Lang::Rs) => o.push_str(&format!("{pad}self.{} += {};\n", canon(p, c), tally_expr(false, &format!("format!(\"{{}}\", {t})"), pat.as_ref().map(|e| s(e)).as_deref(), *lead))),
                     (Inspect::Replace { lead: true, from, to, .. }, Lang::Py) => o.push_str(&format!("{pad}{t} = {}\n", replace_lead(true, &format!("str({t})"), &s(from), &s(to)))),
@@ -3176,16 +3278,20 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
             }
             Stmt::CallExt(name, args) => match l {
                 Lang::Py => o.push_str(&format!("{pad}self.call_ext({name:?}, [{}])\n", args.iter().map(|e| disp(p, e, l)).collect::<Vec<_>>().join(", "))),
+                Lang::Jv => o.push_str(&format!(
+                    "{pad}if (self.ext == null) {{ throw new IllegalStateException(\"COBOL_to: CALL {name} は未登録(runWith で登録する)\"); }}\n{pad}self.ext.call({name:?}, new String[] {{ {} }});\n",
+                    args.iter().map(|e| format!("S({})", disp(p, e, l))).collect::<Vec<_>>().join(", ")
+                )),
                 Lang::Rs => o.push_str(&format!(
                     "{pad}match self.ext {{ Some(f) => f({name:?}, vec![{}]), None => panic!(\"COBOL_to: CALL {name} は未登録(run_with で登録する)\") }}\n",
                     args.iter().map(|e| format!("format!(\"{{}}\", {})", disp(p, e, l))).collect::<Vec<_>>().join(", ")
                 )),
             },
-            Stmt::Open(f, mode) => match l {
+            Stmt::Open(f, mode) => match l { Lang::Jv => unreachable!(),
                 Lang::Py => o.push_str(&format!("{pad}self.f_open({f:?}, {mode:?})\n")),
                 Lang::Rs => o.push_str(&format!("{pad}self.fo_{f}({mode:?});\n")),
             },
-            Stmt::Close(f) => match l {
+            Stmt::Close(f) => match l { Lang::Jv => unreachable!(),
                 Lang::Py => o.push_str(&format!("{pad}self.f_close({f:?})\n")),
                 Lang::Rs => o.push_str(&format!("{pad}self.fc_{f}();\n")),
             },
@@ -3198,7 +3304,7 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                     }
                 }
                 ok.extend(not_at_end.iter().cloned());
-                match l {
+                match l { Lang::Jv => unreachable!(),
                     Lang::Py => {
                         o.push_str(&format!("{pad}if self.f_read({f:?}):\n"));
                         emit(p, &ok, l, ind + 1, o);
@@ -3223,7 +3329,7 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                         _ => o.push_str(&format!("{pad}{} TODO(COBOL_to): WRITE FROM: 複数項目のレコードは未対応\n", if py { "#" } else { "//" })),
                     }
                 }
-                match l {
+                match l { Lang::Jv => unreachable!(),
                     Lang::Py => o.push_str(&format!("{pad}self.f_write({f:?})\n")),
                     Lang::Rs => o.push_str(&format!("{pad}self.wr_{f}();\n")),
                 }
@@ -3311,7 +3417,7 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                         _ => o.push_str(&format!("{pad}{} TODO(COBOL_to): RELEASE FROM: 複数項目のレコードは未対応\n", if py { "#" } else { "//" })),
                     }
                 }
-                match l {
+                match l { Lang::Jv => unreachable!(),
                     Lang::Py => o.push_str(&format!("{pad}self._sort_buf.append(self.f_pack({f:?}))\n")),
                     Lang::Rs => o.push_str(&format!("{pad}{{ let rec = self.pk_{f}(); self.sort_buf.push(rec); }}\n")),
                 }
@@ -3325,7 +3431,7 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                     }
                 }
                 ok.extend(not_at_end.iter().cloned());
-                match l {
+                match l { Lang::Jv => unreachable!(),
                     Lang::Py => {
                         o.push_str(&format!("{pad}if self._sort_pos < len(self._sort_buf):\n{pad}    self.f_unpack({f:?}, self._sort_buf[self._sort_pos])\n{pad}    self._sort_pos += 1\n"));
                         emit(p, &ok, l, ind + 1, o);
@@ -3376,7 +3482,7 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                         };
                         let c = canon(p, n);
                         let (numeric, scale) = var_of(p, n).map(|v| (v.numeric, v.scale)).unwrap_or((true, 0));
-                        match lang {
+                        match lang { Lang::Jv => unreachable!(),
                             Lang::Py => {
                                 let raw = format!("({row}[{i}] if len({row}) > {i} else \"\")");
                                 if let Some(ib) = ind {
@@ -3399,7 +3505,7 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                     }
                     a
                 };
-                match (kind, l) {
+                match (kind, l) { (_, Lang::Jv) => unreachable!(),
                     (SqlKind::Exec, Lang::Py) => o.push_str(&format!("{pad}_c, _r = SQL_HANDLER({sql:?}, [{}])\n{pad}self.{sc} = _c\n", plist(l))),
                     (SqlKind::Exec, Lang::Rs) => o.push_str(&format!("{pad}{{ let (c, _r) = sql_call({sql:?}, vec![{}]); self.{sc} = c; }}\n", plist(l))),
                     (SqlKind::Prep(n), Lang::Py) => {
@@ -3448,7 +3554,9 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
             Stmt::SizeErr(inner, err, ok) => size_emit(p, inner, err, ok, l, ind, o),
             Stmt::Stop => o.push_str(&match l {
                 Lang::Py => format!("{pad}return 1\n"),
-                Lang::Rs => format!("{pad}return 1;\n"),
+                Lang::Jv => format!("{pad}if (true) return 1;
+"),
+                _ => format!("{pad}return 1;\n"),
             }),
             Stmt::Nop => {}
             Stmt::Todo(t) => o.push_str(&format!("{pad}{} TODO(COBOL_to): 未対応の文 {t}\n", if py { "#" } else { "//" })),
@@ -3651,6 +3759,122 @@ pub fn to_rust(p: &Program) -> String {
         o += "    }\n";
     }
     o + "}\n\npub fn run() -> String {\n    run_with(None)\n}\n\npub fn run_with(ext: Option<Ext>) -> String {\n    let mut s = State::new(ext);\n    s.main();\n    s.out\n}\n"
+}
+
+
+const JAVA_HELPERS: &str = r#"
+    static String S(Object x) { return String.valueOf(x); }
+    static long rdiv(long a, long b) { long q = (Math.abs(a) * 2 + Math.abs(b)) / (Math.abs(b) * 2); return ((a < 0) == (b < 0)) ? q : -q; }
+    static long pow(long a, long b) { long r = 1; for (long i = 0; i < b; i++) r *= a; return r; }
+    static long max(long... v) { long m = v[0]; for (long x : v) if (x > m) m = x; return m; }
+    static long min(long... v) { long m = v[0]; for (long x : v) if (x < m) m = x; return m; }
+    static String fmtDec(long v, int s) {
+        String d = String.valueOf(Math.abs(v));
+        while (d.length() < s + 1) d = "0" + d;
+        int k = d.length() - s;
+        return (v < 0 ? "-" : "") + d.substring(0, k) + "." + d.substring(k);
+    }
+    static long num(String s) { try { return Long.parseLong(s.trim()); } catch (NumberFormatException e) { return 0L; } }
+    static String sub(String s, long a, long n) {
+        int st = (int) Math.max(0, Math.min(s.length(), a - 1));
+        int en = n < 0 ? s.length() : (int) Math.min(s.length(), st + n);
+        return s.substring(st, en);
+    }
+    static String upto(String s, String d) { if (d.isEmpty()) return s; int i = s.indexOf(d); return i < 0 ? s : s.substring(0, i); }
+    static java.util.List<String> split(String s, String d, boolean all) {
+        java.util.List<String> r = new java.util.ArrayList<>();
+        if (d.isEmpty()) { r.add(s); return r; }
+        int i = 0;
+        while (true) { int j = s.indexOf(d, i); if (j < 0) { r.add(s.substring(i)); break; } r.add(s.substring(i, j)); i = j + d.length(); }
+        if (all) r.removeIf(String::isEmpty);
+        return r;
+    }
+    static long tally(String x, String p, boolean lead) {
+        if (p == null) return x.codePointCount(0, x.length());
+        if (p.isEmpty()) return 0L;
+        long n = 0; int i = 0;
+        if (lead) { while (x.startsWith(p, i)) { n++; i += p.length(); } return n; }
+        while ((i = x.indexOf(p, i)) >= 0) { n++; i += p.length(); }
+        return n;
+    }
+    static String replaceLead(String x, String f, String t) {
+        if (f.isEmpty()) return x;
+        StringBuilder b = new StringBuilder(); int i = 0;
+        while (x.startsWith(f, i)) { b.append(t); i += f.length(); }
+        return b + x.substring(i);
+    }
+    static String replaceLit(String x, String f, String t, boolean first) {
+        if (f.isEmpty()) return x;
+        if (!first) return x.replace(f, t);
+        int i = x.indexOf(f); return i < 0 ? x : x.substring(0, i) + t + x.substring(i + f.length());
+    }
+    static String convert(String x, String a, String b) {
+        StringBuilder r = new StringBuilder();
+        for (char c : x.toCharArray()) { int i = a.indexOf(c); r.append(i >= 0 && i < b.length() ? b.charAt(i) : c); }
+        return r.toString();
+    }
+    static boolean isClass(String s, String k) {
+        if (k.equals("NUMERIC")) { String t = s.startsWith("-") ? s.substring(1) : s; return !t.isEmpty() && t.chars().allMatch(Character::isDigit); }
+        for (char c : s.toCharArray()) {
+            if (c == ' ') continue;
+            if (k.equals("ALPHABETIC-LOWER") ? !Character.isLowerCase(c) : k.equals("ALPHABETIC-UPPER") ? !Character.isUpperCase(c) : !Character.isLetter(c)) return false;
+        }
+        return true;
+    }
+    static String readLine() {
+        try { String l = new java.io.BufferedReader(new java.io.InputStreamReader(System.in)).readLine(); return l == null ? "" : l; } catch (java.io.IOException e) { return ""; }
+    }
+    static String sysVal(String kind) {
+        java.time.LocalDateTime n = java.time.LocalDateTime.now(java.time.ZoneOffset.UTC);
+        switch (kind) {
+            case "DATE": return String.format("%02d%02d%02d", n.getYear() % 100, n.getMonthValue(), n.getDayOfMonth());
+            case "DATE8": return String.format("%04d%02d%02d", n.getYear(), n.getMonthValue(), n.getDayOfMonth());
+            case "DAY": return String.format("%02d%03d", n.getYear() % 100, n.getDayOfYear());
+            case "DAY7": return String.format("%04d%03d", n.getYear(), n.getDayOfYear());
+            case "DAY-OF-WEEK": return String.valueOf(n.getDayOfWeek().getValue());
+            default: return String.format("%02d%02d%02d%02d", n.getHour(), n.getMinute(), n.getSecond(), n.getNano() / 10000000);
+        }
+    }
+"#;
+
+/// Java 出力(1本の COBOL プログラム → 1つの Java クラス)。数値は long(10^小数桁 倍した整数)、文字は String。
+/// ファイル入出力・SORT・EXEC SQL・範囲つき INSPECT はまだ扱わず、TODO の注記を残す。
+pub fn to_java(p: &Program, class: &str) -> String {
+    let mut o = String::from("// COBOL_to generated (Java). 数値は long(10^小数桁 倍した整数)、文字は String。\n");
+    o += &note_lines(p, "//");
+    o += &format!("public final class {class} {{\n    /** CALL \"NAME\" の呼び先(引数は文字列化して渡す) */\n    public interface Ext {{ void call(String name, String[] args); }}\n");
+    o += JAVA_HELPERS;
+    o += "\n    static final class State {\n        final StringBuilder out = new StringBuilder();\n        String gotoP = \"\";\n        final Ext ext;\n";
+    for v in &p.vars {
+        let t = if v.numeric { "long" } else { "String" };
+        let init = init_value(v);
+        let one = if v.numeric { format!("{init}L") } else { init };
+        let (ty, val) = if v.occurs > 0 {
+            (format!("{t}[]"), format!("fill(new {t}[{}], {one})", v.occurs))
+        } else {
+            (t.to_string(), one)
+        };
+        o += &format!("        {ty} {} = {val};{}\n", ident(&v.name), if v.undeclared { " // TODO(COBOL_to): 宣言が見つからない変数" } else { "" });
+    }
+    o += "        State(Ext ext) { this.ext = ext; }\n";
+    o += "        static long[] fill(long[] a, long v) { java.util.Arrays.fill(a, v); return a; }\n        static String[] fill(String[] a, String v) { java.util.Arrays.fill(a, v); return a; }\n";
+    let ord = order(p);
+    o += &format!("\n        int main() {{\n            String[] order = {{ {} }};\n            int i = 0;\n            while (i < order.length) {{\n                int r;\n                switch (order[i]) {{\n", ord.iter().map(|x| format!("{x:?}")).collect::<Vec<_>>().join(", "));
+    for n in &ord {
+        o += &format!("                    case {n:?}: r = p_{n}(); break;\n");
+    }
+    o += "                    default: r = 0;\n                }\n                if (r == 1) return 1;\n                if (r == 2) {\n                    int k = java.util.Arrays.asList(order).indexOf(gotoP);\n                    if (k < 0) return 2;\n                    i = k;\n                    continue;\n                }\n                i++;\n            }\n            return 0;\n        }\n";
+    let mut bodies: Vec<(String, &Vec<Stmt>)> = vec![("_entry".into(), &p.stmts)];
+    for (n, ss) in &p.paragraphs {
+        bodies.push((n.clone(), ss));
+    }
+    for (n, ss) in bodies {
+        o += &format!("\n        int p_{n}() {{\n            final State self = this;\n");
+        emit(p, ss, Lang::Jv, 3, &mut o);
+        o += "            return 0;\n        }\n";
+    }
+    o += "    }\n\n    public static String run() { return runWith(null); }\n\n    public static String runWith(Ext ext) {\n        State s = new State(ext);\n        s.main();\n        return s.out.toString();\n    }\n\n    public static void main(String[] args) { System.out.print(run()); }\n}\n";
+    o
 }
 
 

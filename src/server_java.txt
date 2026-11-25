@@ -1,0 +1,61 @@
+package cobolto;
+
+import com.sun.net.httpserver.HttpServer;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/** COBOL_to が生成したサーバー。POST /cobol_to.Program/Run {"program":"名前"} -> {"output":...}(REST なし) */
+public final class Server {
+    static final Map<String, Supplier<String>> PROGRAMS = Map.ofEntries(
+__ENTRIES__
+    );
+
+    static String json(String s) {
+        StringBuilder b = new StringBuilder("\"");
+        for (char c : s.toCharArray()) {
+            switch (c) {
+                case '"': b.append("\\\""); break;
+                case '\\': b.append("\\\\"); break;
+                case '\n': b.append("\\n"); break;
+                case '\r': b.append("\\r"); break;
+                case '\t': b.append("\\t"); break;
+                default: if (c < 0x20) b.append(String.format("\\u%04x", (int) c)); else b.append(c);
+            }
+        }
+        return b.append('"').toString();
+    }
+
+    public static void main(String[] args) throws Exception {
+        int port = Integer.parseInt(System.getenv().getOrDefault("PORT", "3004"));
+        HttpServer srv = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
+        Pattern prog = Pattern.compile("^\\s*\\{\\s*\"program\"\\s*:\\s*\"([A-Za-z0-9_]*)\"\\s*\\}\\s*$");
+        srv.createContext("/cobol_to.Program/Run", ex -> {
+            int code;
+            String body;
+            if (!ex.getRequestMethod().equals("POST")) {
+                code = 405; body = "{\"code\":\"unimplemented\"}";
+            } else {
+                byte[] in = ex.getRequestBody().readNBytes(64 * 1024 + 1);
+                Matcher m = prog.matcher(new String(in, StandardCharsets.UTF_8));
+                if (in.length > 64 * 1024 || !m.matches()) {
+                    code = 400; body = "{\"code\":\"invalid_argument\"}";
+                } else if (!PROGRAMS.containsKey(m.group(1))) {
+                    code = 404; body = "{\"code\":\"not_found\"}";
+                } else {
+                    code = 200; body = "{\"output\":" + json(PROGRAMS.get(m.group(1)).get()) + "}";
+                }
+            }
+            byte[] out = body.getBytes(StandardCharsets.UTF_8);
+            ex.getResponseHeaders().set("content-type", "application/json");
+            ex.sendResponseHeaders(code, out.length);
+            ex.getResponseBody().write(out);
+            ex.close();
+        });
+        srv.start();
+        System.out.println("listening on 127.0.0.1:" + port);
+    }
+}
