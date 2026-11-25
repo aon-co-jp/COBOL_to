@@ -408,3 +408,16 @@ Status: a tool that auto-detects the COBOL dialect, standard and source format a
 - **Top-priority instruction (user, 2026-11-25)**: give top priority to **cross-conversion** from COBOL (mainframe, Linux, UNIX, Windows and so on), Java, Fortran, PHP, Perl and others into FastAPI, Poem, RPoem, RMojo/Mojo, MFastAPI, RPoRea, Fortran and others. Owners: COBOL_to, Java_to, pl2pl, 2MFastAPI and 2RPoRea, developed together.
 - **Honest current coverage**: COBOL to RPoem/Axum/FastAPI/MFastAPI (simple programs); Java (Spring) to an RPoem scaffold (bodies TODO except simple returns); Python to RPoem (2Poem); C/C++/Fortran to Rust (pl2pl, simple code); COBOL to COBOL for another OS (pl2pl cobol). **Not yet**: business-logic conversion from PHP and Perl, COBOL to Java, COBOL to Fortran, Java to Fortran/COBOL, Mojo/RMojo as a target, and most reverse directions.
 - **Next (in order)**: (1) build a source-by-target matrix and list the empty pairs; (2) PHP to RPoem/MFastAPI (starting from Laravel routes); (3) Perl likewise; (4) COBOL to Java; (5) add Mojo/RMojo as a target.
+
+## 2026-11-25 追記: COBOL→Java 変換(`--target java`) / COBOL to Java (`--target java`)
+**日本語**
+- COBOL_to に Java 出力を追加した(`convert::to_java`、`--target java`)。1本の COBOL を1つの Java クラスにする(数値は long の固定小数点、文字は String、段落はメソッド)。JDK 標準の `com.sun.net.httpserver` で `POST /cobol_to.Program/Run {"program":"名前"}` に答えるサーバー(REST なし)も生成する。
+- **確認済み(実際に javac・java で実行)**: 試験用20本すべてがコンパイルでき、ファイル入出力・SORT・SQL を含まない9本(hello・calc・comp3・eval・eval2・features・search1 と、外部 CALL で同じく止まる misc)は Python 版と出力が一致した。
+- **未対応(TODO の注記を残す)**: ファイル入出力・SORT/MERGE・EXEC SQL・AFTER/BEFORE つき INSPECT(fileio・inspect2・merge1・sort1・sort2・sql1〜7 の11本は出力が一致しない)。サーバーの HTTP 起動確認はまだ。
+- 同日、RMojo に COBOL→Mojo の最初の版(COBOL_to の Python 出力から変換、hello・calc・eval・eval2 の4本が WSL の Mojo で一致)が入った(`69e95ce`、RMojo の文書を参照)。
+
+**English**
+- COBOL_to now emits Java (`convert::to_java`, `--target java`): one COBOL program becomes one Java class (long fixed point, String, paragraphs as methods), plus a JDK-only `com.sun.net.httpserver` server answering `POST /cobol_to.Program/Run {"program":"name"}` (no REST).
+- **Verified (actually compiled with javac and run)**: all 20 samples compile. The 9 without file I/O, SORT or SQL (hello, calc, comp3, eval, eval2, features, search1, plus misc, which stops on an unregistered external CALL in both versions) match the Python output.
+- **Not supported yet (TODO notes are left)**: file I/O, SORT/MERGE, EXEC SQL, and INSPECT with AFTER/BEFORE. The 11 samples that use them (fileio, inspect2, merge1, sort1, sort2, sql1-7) do not match. The HTTP server has not been started and checked yet.
+- Same day, RMojo got a first COBOL-to-Mojo converter (from COBOL_to's Python output). 4 samples (hello, calc, eval, eval2) match under real Mojo in WSL (`69e95ce`; see the RMojo docs).
