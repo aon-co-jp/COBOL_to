@@ -69,6 +69,37 @@ fn write(p: &Path, s: &str) {
     std::fs::write(p, s).unwrap_or_else(|e| eprintln!("書き込み失敗 {}: {e}", p.display()));
 }
 
+/// RPoem 向けの起動用サーバー(Connect 単純呼び出し、REST なし)。
+const SERVER_RS: &str = r#"//! COBOL_to が生成した RPoem サーバー。POST /cobol_to.Program/Run {"program":"名前"}
+use open_runo_poem_compat::{post, Json, Params, Request, Response, Route, Server, StatusCode, TcpListener};
+
+#[open_runo_poem_compat_macro::handler]
+async fn run(req: Request, _params: Params) -> Response {
+    let body = match open_runo_poem_compat::body_limit::read_body_limited(req, 64 * 1024).await {
+        Ok(b) => b,
+        Err(r) => return r,
+    };
+    let v: serde_json::Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(_) => return Json(serde_json::json!({"code": "invalid_argument"})).into_response(StatusCode::BAD_REQUEST),
+    };
+    let name = v.get("program").and_then(|x| x.as_str()).unwrap_or("");
+    match cobol_to_out::PROGRAMS.iter().find(|(n, _)| *n == name) {
+        Some((_, f)) => Json(serde_json::json!({"output": f()})).into_response(StatusCode::OK),
+        None => Json(serde_json::json!({"code": "not_found"})).into_response(StatusCode::NOT_FOUND),
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    let port: u16 = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(3001);
+    let app = Route::new().at("/cobol_to.Program/Run", post(run()));
+    let (addr, handle) = Server::new(TcpListener::bind(([127, 0, 0, 1], port))).run(app).await.expect("bind");
+    println!("listening on {addr}");
+    handle.await.ok();
+}
+"#;
+
 fn scaffold(t: Target, out: &Path, mods: &[String]) {
     let calls: String = mods.iter().map(|m| format!("    (\"{m}\", programs::{m}::run),\n")).collect();
     if t.is_python() {
@@ -81,7 +112,14 @@ fn scaffold(t: Target, out: &Path, mods: &[String]) {
         write(&out.join("requirements.txt"), &format!("{fw}\nuvicorn\n"));
         write(&out.join("frontend/README.md"), "画面は HTML5/CSS3 で十分です(静的ファイルを FastAPI が配信)。Bootstrap・TypeScript・Node.js を使うかは自由ですが、推薦はしません。Connect(POST /cobol_to.Program/Run)を fetch で呼びます。\n");
     } else {
-        write(&out.join("Cargo.toml"), "[package]\nname = \"cobol_to-out\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n# 最新版を入れる: cargo add tokio --features full ; cargo add poem (RPoem は F:\\RPoem を path 依存で追加)\n");
+        if t == Target::RPoem {
+            // 起動できるサーバー: POST /cobol_to.Program/Run {"program":"名前"} -> {"output":..}
+            let rp = std::env::var("RPOEM_DIR").unwrap_or_else(|_| "F:/RPoem".into()).replace('\\', "/");
+            write(&out.join("Cargo.toml"), &format!("[package]\nname = \"cobol_to-out\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"cobol_to_out\"\npath = \"src/lib.rs\"\n\n[[bin]]\nname = \"cobol_to-server\"\npath = \"src/main.rs\"\n\n[dependencies]\nopen-runo-poem-compat = {{ path = \"{rp}/crates/open-runo-poem-compat\" }}\nopen-runo-poem-compat-macro = {{ path = \"{rp}/crates/open-runo-poem-compat-macro\" }}\nserde_json = \"1\"\ntokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"net\"] }}\n"));
+            write(&out.join("src/main.rs"), SERVER_RS);
+        } else {
+            write(&out.join("Cargo.toml"), "[package]\nname = \"cobol_to-out\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n# 最新版を入れる: cargo add tokio --features full ; cargo add poem (RPoem は F:\\RPoem を path 依存で追加)\n");
+        }
         write(&out.join("src/programs/mod.rs"), &mods.iter().map(|m| format!("pub mod {m};\n")).collect::<String>());
         write(&out.join("src/lib.rs"), &format!(
             "pub mod programs;\n\n/// Connect形式 POST /cobol_to.Program/Run から呼ぶ登録表\npub const PROGRAMS: &[(&str, fn() -> String)] = &[\n{calls}];\n"));
