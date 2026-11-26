@@ -421,3 +421,14 @@ Status: a tool that auto-detects the COBOL dialect, standard and source format a
 - **Verified (actually compiled with javac and run)**: all 20 samples compile. The 9 without file I/O, SORT or SQL (hello, calc, comp3, eval, eval2, features, search1, plus misc, which stops on an unregistered external CALL in both versions) match the Python output.
 - **Not supported yet (TODO notes are left)**: file I/O, SORT/MERGE, EXEC SQL, and INSPECT with AFTER/BEFORE. The 11 samples that use them (fileio, inspect2, merge1, sort1, sort2, sql1-7) do not match. The HTTP server has not been started and checked yet.
 - Same day, RMojo got a first COBOL-to-Mojo converter (from COBOL_to's Python output). 4 samples (hello, calc, eval, eval2) match under real Mojo in WSL (`69e95ce`; see the RMojo docs).
+
+## 2026-11-26 追記: Java 出力のファイル入出力・SORT・SQL・範囲つき INSPECT / Java output: file I/O, SORT, SQL, scoped INSPECT
+**日本語**
+- `--target java` で、ファイル入出力(OPEN/CLOSE/READ/WRITE、固定長レコード・FILE STATUS)、SORT/MERGE(RELEASE/RETURN、入力・出力手続き)、EXEC SQL(SELECT INTO・カーソル・指示変数・PREPARE/EXECUTE・EXECUTE IMMEDIATE)、AFTER/BEFORE つき INSPECT を、Rust 版と同じ動きで出力するようにした。TODO の注記は出なくなった。
+- SQL の実行先は生成クラスの `setSqlHandler(SqlHandler)` で登録する(未登録なら SQLCODE=-1)。Java には標準の sqlite が無いため、試験では Python 版と同じ sqlite3 の既定処理を橋渡しで呼ぶハンドラーを登録して比べた。
+- **確認済み(javac・java で実行し、Python 出力と比較)**: fileio・inspect2・merge1・sort1・sort2・sql1〜7 の12本が一致。ほかに hello・calc・comp3・eval・eval2・features・search1 も一致。misc は Python 側が例外で止まるため比較対象外。生成サーバーは hello 200・未知 404・不正JSON 400・GET 405、fileio も 200 を確認。`cargo test` 26件成功。
+
+**English**
+- `--target java` now emits file I/O (OPEN/CLOSE/READ/WRITE, fixed-width records, FILE STATUS), SORT/MERGE (RELEASE/RETURN, input/output procedures), EXEC SQL (SELECT INTO, cursors, indicators, PREPARE/EXECUTE, EXECUTE IMMEDIATE) and INSPECT with AFTER/BEFORE, behaving like the Rust output. No TODO notes remain for these.
+- Register the SQL backend with the generated class's `setSqlHandler(SqlHandler)` (SQLCODE -1 when none). Java has no built-in sqlite, so the test registered a handler that bridges to the same sqlite3 default as the Python output.
+- **Verified (javac/java, compared with the Python output)**: fileio, inspect2, merge1, sort1, sort2 and sql1-7 (12) match; hello, calc, comp3, eval, eval2, features and search1 also match. misc is excluded because the Python side stops with an exception. The generated server returns hello 200, unknown 404, bad JSON 400, GET 405, and fileio 200. `cargo test`: 26 passed.
