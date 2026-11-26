@@ -2980,17 +2980,6 @@ fn size_emit(p: &Program, inner: &Stmt, err: &[Stmt], ok: &[Stmt], l: Lang, ind:
     }
 }
 
-/// Java 出力でまだ扱わない文(ファイル入出力・SORT・SQL・範囲つき INSPECT)。理由の文字列を返す
-fn java_unsupported(s: &Stmt) -> Option<&'static str> {
-    match s {
-        Stmt::Open(..) | Stmt::Close(..) | Stmt::Read(..) | Stmt::Write(..) => Some("ファイル入出力"),
-        Stmt::SortFile(..) | Stmt::Release(..) | Stmt::Return(..) => Some("SORT"),
-        Stmt::Sql(..) => Some("EXEC SQL"),
-        Stmt::InspectScoped(..) => Some("INSPECT の AFTER/BEFORE"),
-        _ => None,
-    }
-}
-
 fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
     let pad = "    ".repeat(ind);
     if ss.is_empty() {
@@ -3000,12 +2989,6 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
     let py = l == Lang::Py;
     let jv = l == Lang::Jv;
     for s in ss {
-        if jv {
-            if let Some(why) = java_unsupported(s) {
-                o.push_str(&format!("{pad}// TODO(COBOL_to): Java出力では未対応の文({why})\n"));
-                continue;
-            }
-        }
         match s {
             Stmt::Display(a) | Stmt::DisplayNoNl(a) => {
                 let nl = matches!(s, Stmt::Display(_));
@@ -3245,6 +3228,28 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                             o.push_str(&format!("{pad}{t} = _t[:_s] + _m + _t[_e:]\n"));
                         }
                     }
+                } else if jv {
+                    o.push_str(&format!("{pad}{{\n{pad}    String t0 = S({t}); int s0 = 0; int e0 = t0.length();\n"));
+                    if let Some(a) = after {
+                        o.push_str(&format!("{pad}    String a0 = S({}); int i0 = t0.indexOf(a0); s0 = i0 >= 0 ? i0 + a0.length() : t0.length();\n", s(a)));
+                    }
+                    if let Some(b) = before {
+                        o.push_str(&format!("{pad}    int j0 = t0.indexOf(S({}), s0); e0 = j0 >= 0 ? j0 : t0.length();\n", s(b)));
+                    }
+                    o.push_str(&format!("{pad}    String m0 = t0.substring(s0, e0);\n"));
+                    let m1 = match op {
+                        Inspect::Tally(c, pat, lead) => {
+                            o.push_str(&format!("{pad}    self.{} += tally(m0, {}, {lead});\n", canon(p, c), pat.as_ref().map(|e| format!("S({})", s(e))).unwrap_or("null".into())));
+                            None
+                        }
+                        Inspect::Replace { lead: true, from, to, .. } => Some(format!("replaceLead(m0, S({}), S({}))", s(from), s(to))),
+                        Inspect::Replace { first, from, to, .. } => Some(format!("replaceLit(m0, S({}), S({}), {first})", s(from), s(to))),
+                        Inspect::Convert(a, b) => Some(format!("convert(m0, S({}), S({}))", s(a), s(b))),
+                    };
+                    if let Some(m) = m1 {
+                        o.push_str(&format!("{pad}    {t} = t0.substring(0, s0) + {m} + t0.substring(e0);\n"));
+                    }
+                    o.push_str(&format!("{pad}}}\n"));
                 } else {
                     o.push_str(&format!("{pad}{{\n{pad}    let t0 = format!(\"{{}}\", {t}); let mut s0 = 0usize; let mut e0 = t0.len();\n"));
                     if let Some(a) = after {
@@ -3287,11 +3292,13 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                     args.iter().map(|e| format!("format!(\"{{}}\", {})", disp(p, e, l))).collect::<Vec<_>>().join(", ")
                 )),
             },
-            Stmt::Open(f, mode) => match l { Lang::Jv => unreachable!(),
+            Stmt::Open(f, mode) => match l {
+                Lang::Jv => o.push_str(&format!("{pad}self.fo_{f}({mode:?});\n")),
                 Lang::Py => o.push_str(&format!("{pad}self.f_open({f:?}, {mode:?})\n")),
                 Lang::Rs => o.push_str(&format!("{pad}self.fo_{f}({mode:?});\n")),
             },
-            Stmt::Close(f) => match l { Lang::Jv => unreachable!(),
+            Stmt::Close(f) => match l {
+                Lang::Jv => o.push_str(&format!("{pad}self.fc_{f}();\n")),
                 Lang::Py => o.push_str(&format!("{pad}self.f_close({f:?})\n")),
                 Lang::Rs => o.push_str(&format!("{pad}self.fc_{f}();\n")),
             },
@@ -3304,7 +3311,14 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                     }
                 }
                 ok.extend(not_at_end.iter().cloned());
-                match l { Lang::Jv => unreachable!(),
+                match l {
+                    Lang::Jv => {
+                        o.push_str(&format!("{pad}if (self.rd_{f}()) {{\n"));
+                        emit(p, &ok, l, ind + 1, o);
+                        o.push_str(&format!("{pad}}} else {{\n"));
+                        emit(p, at_end, l, ind + 1, o);
+                        o.push_str(&format!("{pad}}}\n"));
+                    }
                     Lang::Py => {
                         o.push_str(&format!("{pad}if self.f_read({f:?}):\n"));
                         emit(p, &ok, l, ind + 1, o);
@@ -3329,7 +3343,8 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                         _ => o.push_str(&format!("{pad}{} TODO(COBOL_to): WRITE FROM: 複数項目のレコードは未対応\n", if py { "#" } else { "//" })),
                     }
                 }
-                match l { Lang::Jv => unreachable!(),
+                match l {
+                    Lang::Jv => o.push_str(&format!("{pad}self.wr_{f}();\n")),
                     Lang::Py => o.push_str(&format!("{pad}self.f_write({f:?})\n")),
                     Lang::Rs => o.push_str(&format!("{pad}self.wr_{f}();\n")),
                 }
@@ -3372,6 +3387,32 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                 };
                 if let Some(k) = missing {
                     o.push_str(&format!("{pad}{} TODO(COBOL_to): SORT のキー {k} がレコードの項目に無い\n", if py { "#" } else { "//" }));
+                } else if jv {
+                    let jpath = |n: &String| -> String {
+                        match p.files.iter().find(|f| &f.name == n) {
+                            Some(f) if f.assign_lit => format!("{:?}", f.assign),
+                            Some(f) => format!("envOr({:?}, {:?})", f.assign.to_uppercase(), f.assign.to_lowercase()),
+                            None => "\"\"".into(),
+                        }
+                    };
+                    let kl = ks.iter().map(|(a, b, c, d)| format!("{{{a}, {b}, {}, {}}}", *c as u8, *d as u8)).collect::<Vec<_>>().join(", ");
+                    o.push_str(&format!("{pad}self.sort_buf.clear();\n"));
+                    if let Some(pr) = inp {
+                        emit(p, &[perform(pr)], l, ind, o);
+                    } else {
+                        for u in using {
+                            o.push_str(&format!("{pad}readLines({}, self.sort_buf);\n", jpath(u)));
+                        }
+                    }
+                    o.push_str(&format!("{pad}sortBuf(self.sort_buf, new int[][] {{ {kl} }});\n"));
+                    if let Some(pr) = outp {
+                        o.push_str(&format!("{pad}self.sort_pos = 0;\n"));
+                        emit(p, &[perform(pr)], l, ind, o);
+                    } else {
+                        for g in giving {
+                            o.push_str(&format!("{pad}writeLines({}, self.sort_buf);\n", jpath(g)));
+                        }
+                    }
                 } else if py {
                     let kl = ks.iter().map(|(a, b, c, d)| format!("({a}, {b}, {}, {})", if *c { "True" } else { "False" }, if *d { "True" } else { "False" })).collect::<Vec<_>>().join(", ");
                     let ul = using.iter().map(|f| format!("{f:?}")).collect::<Vec<_>>().join(", ");
@@ -3417,7 +3458,8 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                         _ => o.push_str(&format!("{pad}{} TODO(COBOL_to): RELEASE FROM: 複数項目のレコードは未対応\n", if py { "#" } else { "//" })),
                     }
                 }
-                match l { Lang::Jv => unreachable!(),
+                match l {
+                    Lang::Jv => o.push_str(&format!("{pad}self.sort_buf.add(self.pk_{f}());\n")),
                     Lang::Py => o.push_str(&format!("{pad}self._sort_buf.append(self.f_pack({f:?}))\n")),
                     Lang::Rs => o.push_str(&format!("{pad}{{ let rec = self.pk_{f}(); self.sort_buf.push(rec); }}\n")),
                 }
@@ -3431,7 +3473,14 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                     }
                 }
                 ok.extend(not_at_end.iter().cloned());
-                match l { Lang::Jv => unreachable!(),
+                match l {
+                    Lang::Jv => {
+                        o.push_str(&format!("{pad}if (self.sort_pos < self.sort_buf.size()) {{\n{pad}    self.up_{f}(self.sort_buf.get(self.sort_pos));\n{pad}    self.sort_pos++;\n"));
+                        emit(p, &ok, l, ind + 1, o);
+                        o.push_str(&format!("{pad}}} else {{\n"));
+                        emit(p, at_end, l, ind + 1, o);
+                        o.push_str(&format!("{pad}}}\n"));
+                    }
                     Lang::Py => {
                         o.push_str(&format!("{pad}if self._sort_pos < len(self._sort_buf):\n{pad}    self.f_unpack({f:?}, self._sort_buf[self._sort_pos])\n{pad}    self._sort_pos += 1\n"));
                         emit(p, &ok, l, ind + 1, o);
@@ -3460,11 +3509,11 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                                 None => (n.as_str(), None),
                             };
                             let d = disp(p, &Expr::Var(vn.to_string()), lang);
-                            let base = if lang == Lang::Py { format!("str({d})") } else { format!("format!(\"{{}}\", {d})") };
+                            let base = match lang { Lang::Py => format!("str({d})"), Lang::Jv => format!("S({d})"), Lang::Rs => format!("format!(\"{{}}\", {d})") };
                             match ind {
                                 Some(ib) => {
                                     let ic = canon(p, ib);
-                                    if lang == Lang::Py { format!("(SQL_NULL if self.{ic} < 0 else {base})") } else { format!("(if self.{ic} < 0 {{ SQL_NULL.to_string() }} else {{ {base} }})") }
+                                    if lang == Lang::Py { format!("(SQL_NULL if self.{ic} < 0 else {base})") } else if lang == Lang::Jv { format!("(self.{ic} < 0 ? SQL_NULL : {base})") } else { format!("(if self.{ic} < 0 {{ SQL_NULL.to_string() }} else {{ {base} }})") }
                                 }
                                 None => base,
                             }
@@ -3482,7 +3531,15 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                         };
                         let c = canon(p, n);
                         let (numeric, scale) = var_of(p, n).map(|v| (v.numeric, v.scale)).unwrap_or((true, 0));
-                        match lang { Lang::Jv => unreachable!(),
+                        match lang {
+                            Lang::Jv => {
+                                let raw = format!("({row}.size() > {i} ? {row}.get({i}) : \"\")");
+                                if let Some(ib) = ind {
+                                    a += &format!("{pad}    self.{} = {raw}.equals(SQL_NULL) ? -1 : 0;\n", canon(p, ib));
+                                }
+                                let src = format!("({raw}.equals(SQL_NULL) ? \"\" : {raw})");
+                                a += &if numeric { format!("{pad}    self.{c} = sqlNum({src}, {scale});\n") } else { format!("{pad}    self.{c} = {src};\n") };
+                            }
                             Lang::Py => {
                                 let raw = format!("({row}[{i}] if len({row}) > {i} else \"\")");
                                 if let Some(ib) = ind {
@@ -3505,7 +3562,30 @@ fn emit(p: &Program, ss: &[Stmt], l: Lang, ind: usize, o: &mut String) {
                     }
                     a
                 };
-                match (kind, l) { (_, Lang::Jv) => unreachable!(),
+                let rq = "java.util.List<java.util.List<String>> rq = new java.util.ArrayList<>();";
+                match (kind, l) {
+                    (SqlKind::Exec, Lang::Jv) => o.push_str(&format!("{pad}{{ {rq} self.{sc} = sqlCall({sql:?}, new String[] {{ {} }}, rq); }}\n", plist(l))),
+                    (SqlKind::Prep(n), Lang::Jv) => {
+                        let d = disp(p, &Expr::Var(sql.clone()), l);
+                        o.push_str(&format!("{pad}self.sqlPrep.put({n:?}, S({d}).trim());\n{pad}self.{sc} = 0;\n"))
+                    }
+                    (SqlKind::ExecPrep(n), Lang::Jv) => o.push_str(&format!("{pad}{{ String q = self.sqlPrep.get({n:?}); if (q != null) {{ {rq} self.{sc} = sqlCall(q, new String[] {{ {} }}, rq); }} else {{ self.{sc} = -518; }} }}\n", plist(l))),
+                    (SqlKind::ExecDyn, Lang::Jv) => {
+                        let d = disp(p, &Expr::Var(sql.clone()), l);
+                        o.push_str(&format!("{pad}{{ {rq} self.{sc} = sqlCall(S({d}).trim(), new String[] {{}}, rq); }}\n"))
+                    }
+                    (SqlKind::Select, Lang::Jv) => {
+                        o.push_str(&format!("{pad}{{\n{pad}    {rq} long cq = sqlCall({sql:?}, new String[] {{ {} }}, rq);\n{pad}    self.{sc} = cq != 0 ? cq : (rq.isEmpty() ? 100 : 0);\n{pad}    if (cq == 0 && !rq.isEmpty()) {{\n{pad}    java.util.List<String> row = rq.get(0);\n", plist(l)));
+                        o.push_str(&assigns("row", l));
+                        o.push_str(&format!("{pad}    }}\n{pad}}}\n"));
+                    }
+                    (SqlKind::Open(n), Lang::Jv) => o.push_str(&format!("{pad}{{ {rq} self.{sc} = sqlCall({sql:?}, new String[] {{ {} }}, rq); self.sqlCur.put({n:?}, new Cur(rq)); }}\n", plist(l))),
+                    (SqlKind::Fetch(n), Lang::Jv) => {
+                        o.push_str(&format!("{pad}{{\n{pad}    Cur cu = self.sqlCur.get({n:?});\n{pad}    if (cu != null && cu.pos < cu.rows.size()) {{\n{pad}    java.util.List<String> row = cu.rows.get(cu.pos++);\n{pad}    self.{sc} = 0;\n"));
+                        o.push_str(&assigns("row", l));
+                        o.push_str(&format!("{pad}    }} else {{\n{pad}        self.{sc} = cu != null ? 100 : -501;\n{pad}    }}\n{pad}}}\n"));
+                    }
+                    (SqlKind::Close(n), Lang::Jv) => o.push_str(&format!("{pad}self.{sc} = self.sqlCur.remove({n:?}) != null ? 0 : -501;\n")),
                     (SqlKind::Exec, Lang::Py) => o.push_str(&format!("{pad}_c, _r = SQL_HANDLER({sql:?}, [{}])\n{pad}self.{sc} = _c\n", plist(l))),
                     (SqlKind::Exec, Lang::Rs) => o.push_str(&format!("{pad}{{ let (c, _r) = sql_call({sql:?}, vec![{}]); self.{sc} = c; }}\n", plist(l))),
                     (SqlKind::Prep(n), Lang::Py) => {
@@ -3762,6 +3842,25 @@ pub fn to_rust(p: &Program) -> String {
 }
 
 
+const JAVA_SQL: &str = r#"
+    /** EXEC SQL の実行先。引数は (SQL 文(:変数 は ?), 変数の値の文字列, 結果の行を足すリスト)、戻り値は SQLCODE */
+    public interface SqlHandler { long call(String sql, String[] params, java.util.List<java.util.List<String>> rows); }
+    static SqlHandler SQL_HANDLER;
+    /** EXEC SQL の実行先を登録する。未登録なら SQLCODE は -1 */
+    public static void setSqlHandler(SqlHandler h) { SQL_HANDLER = h; }
+    /** NULL を表す文字列(指示変数が負のとき渡す/NULL の列で返す) */
+    public static final String SQL_NULL = "\u0000NULL";
+    static long sqlCall(String sql, String[] ps, java.util.List<java.util.List<String>> rows) { return SQL_HANDLER == null ? -1L : SQL_HANDLER.call(sql, ps, rows); }
+    static long sqlNum(String s, int scale) {
+        String t = s.trim(); boolean neg = false;
+        if (t.startsWith("-")) { neg = true; t = t.substring(1); } else if (t.startsWith("+")) t = t.substring(1);
+        int d = t.indexOf('.'); String ip = d < 0 ? t : t.substring(0, d); String fp = d < 0 ? "" : t.substring(d + 1);
+        StringBuilder f = new StringBuilder(fp.length() > scale ? fp.substring(0, scale) : fp); while (f.length() < scale) f.append('0');
+        long v; try { v = Long.parseLong((ip.isEmpty() ? "0" : ip) + f); } catch (NumberFormatException e) { v = 0L; }
+        return neg ? -v : v;
+    }
+"#;
+
 const JAVA_HELPERS: &str = r#"
     static String S(Object x) { return String.valueOf(x); }
     static long rdiv(long a, long b) { long q = (Math.abs(a) * 2 + Math.abs(b)) / (Math.abs(b) * 2); return ((a < 0) == (b < 0)) ? q : -q; }
@@ -3821,6 +3920,27 @@ const JAVA_HELPERS: &str = r#"
         }
         return true;
     }
+    static String padNum(long v, int w) { if (v < 0) return "-" + zpad(String.valueOf(-v), w - 1); return zpad(String.valueOf(v), w); }
+    static String zpad(String s, int w) { StringBuilder b = new StringBuilder(); for (int i = s.length(); i < w; i++) b.append('0'); return b + s; }
+    static String padStr(String s, int w) { String t = s.length() > w ? s.substring(0, w) : s; StringBuilder b = new StringBuilder(t); while (b.length() < w) b.append(' '); return b.toString(); }
+    static String seg(String s, int off, int w) { if (off >= s.length()) return ""; return s.substring(off, Math.min(s.length(), off + w)); }
+    static String rtrim(String s) { int e = s.length(); while (e > 0 && Character.isWhitespace(s.charAt(e - 1))) e--; return s.substring(0, e); }
+    static String envOr(String k, String d) { String v = System.getenv(k); return v == null ? d : v; }
+    static void readLines(String path, java.util.List<String> out) {
+        try { out.addAll(java.nio.file.Files.readAllLines(java.nio.file.Paths.get(path), java.nio.charset.StandardCharsets.UTF_8)); } catch (java.io.IOException e) { }
+    }
+    static void writeLines(String path, java.util.List<String> rs) {
+        StringBuilder b = new StringBuilder(); for (String r : rs) b.append(r).append('\n');
+        try { java.nio.file.Files.write(java.nio.file.Paths.get(path), b.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)); } catch (java.io.IOException e) { }
+    }
+    static void sortBuf(java.util.List<String> buf, int[][] keys) {
+        for (int k = keys.length - 1; k >= 0; k--) {
+            final int off = keys[k][0], w = keys[k][1];
+            java.util.Comparator<String> c = keys[k][2] == 1 ? java.util.Comparator.comparingLong(r -> num(seg(r, off, w))) : java.util.Comparator.comparing(r -> seg(r, off, w));
+            buf.sort(keys[k][3] == 1 ? c.reversed() : c);
+        }
+    }
+    static final class Cur { final java.util.List<java.util.List<String>> rows; int pos; Cur(java.util.List<java.util.List<String>> r) { rows = r; } }
     static String readLine() {
         try { String l = new java.io.BufferedReader(new java.io.InputStreamReader(System.in)).readLine(); return l == null ? "" : l; } catch (java.io.IOException e) { return ""; }
     }
@@ -3838,12 +3958,15 @@ const JAVA_HELPERS: &str = r#"
 "#;
 
 /// Java 出力(1本の COBOL プログラム → 1つの Java クラス)。数値は long(10^小数桁 倍した整数)、文字は String。
-/// ファイル入出力・SORT・EXEC SQL・範囲つき INSPECT はまだ扱わず、TODO の注記を残す。
+/// ファイル入出力・SORT・EXEC SQL(SqlHandler を登録)・範囲つき INSPECT も Rust 版と同じ動きで出力する。
 pub fn to_java(p: &Program, class: &str) -> String {
     let mut o = String::from("// COBOL_to generated (Java). 数値は long(10^小数桁 倍した整数)、文字は String。\n");
     o += &note_lines(p, "//");
     o += &format!("public final class {class} {{\n    /** CALL \"NAME\" の呼び先(引数は文字列化して渡す) */\n    public interface Ext {{ void call(String name, String[] args); }}\n");
     o += JAVA_HELPERS;
+    if p.uses_sql {
+        o += JAVA_SQL;
+    }
     o += "\n    static final class State {\n        final StringBuilder out = new StringBuilder();\n        String gotoP = \"\";\n        final Ext ext;\n";
     for v in &p.vars {
         let t = if v.numeric { "long" } else { "String" };
@@ -3855,6 +3978,10 @@ pub fn to_java(p: &Program, class: &str) -> String {
             (t.to_string(), one)
         };
         o += &format!("        {ty} {} = {val};{}\n", ident(&v.name), if v.undeclared { " // TODO(COBOL_to): 宣言が見つからない変数" } else { "" });
+    }
+    o += "        final java.util.ArrayList<String> sort_buf = new java.util.ArrayList<>();\n        int sort_pos = 0;\n        final java.util.HashMap<String, Cur> sqlCur = new java.util.HashMap<>();\n        final java.util.HashMap<String, String> sqlPrep = new java.util.HashMap<>();\n";
+    for f in &p.files {
+        o += &format!("        java.io.BufferedReader fr_{0};\n        java.io.Writer fw_{0};\n", f.name);
     }
     o += "        State(Ext ext) { this.ext = ext; }\n";
     o += "        static long[] fill(long[] a, long v) { java.util.Arrays.fill(a, v); return a; }\n        static String[] fill(String[] a, String v) { java.util.Arrays.fill(a, v); return a; }\n";
@@ -3872,6 +3999,31 @@ pub fn to_java(p: &Program, class: &str) -> String {
         o += &format!("\n        int p_{n}() {{\n            final State self = this;\n");
         emit(p, ss, Lang::Jv, 3, &mut o);
         o += "            return 0;\n        }\n";
+    }
+    for f in &p.files {
+        let n = &f.name;
+        let st = match f.status.as_ref().map(|s| (s.clone(), var_of(p, s).map(|v| v.numeric).unwrap_or(false))) {
+            Some((s, true)) => format!("this.{s} = num(code);"),
+            Some((s, false)) => format!("this.{s} = code;"),
+            None => String::new(),
+        };
+        o += &format!("\n        void fs_{n}(String code) {{ {st} }}\n");
+        let path = if f.assign_lit { format!("{:?}", f.assign) } else { format!("envOr({:?}, {:?})", f.assign.to_uppercase(), f.assign.to_lowercase()) };
+        o += &format!("        void fo_{n}(String mode) {{\n            String path = {path};\n            try {{\n                if (mode.equals(\"input\") || mode.equals(\"io\")) fr_{n} = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(path), java.nio.charset.StandardCharsets.UTF_8));\n                else fw_{n} = new java.io.OutputStreamWriter(new java.io.FileOutputStream(path, mode.equals(\"extend\")), java.nio.charset.StandardCharsets.UTF_8);\n                fs_{n}(\"00\");\n            }} catch (java.io.IOException e) {{ fs_{n}(\"35\"); }}\n        }}\n");
+        o += &format!("        void fc_{n}() {{\n            try {{ if (fr_{n} != null) fr_{n}.close(); if (fw_{n} != null) fw_{n}.close(); }} catch (java.io.IOException e) {{ }}\n            fr_{n} = null; fw_{n} = null;\n        }}\n");
+        let mut unpack = String::from("            int pos = 0;\n");
+        let mut pack = String::from("            StringBuilder sb = new StringBuilder();\n");
+        for fld in &f.fields {
+            let v = var_of(p, fld);
+            let w = v.map(|x| x.width.max(1)).unwrap_or(1);
+            let num = v.map(|x| x.numeric).unwrap_or(false);
+            unpack += &format!("            {{ String sg = seg(line, pos, {w}); pos += {w}; this.{fld} = {}; }}\n", if num { "num(sg)" } else { "rtrim(sg)" });
+            pack += &format!("            sb.append({});\n", if num { format!("padNum(this.{fld}, {w})") } else { format!("padStr(this.{fld}, {w})") });
+        }
+        o += &format!("        boolean rd_{n}() {{\n            String line;\n            try {{ line = fr_{n} == null ? null : fr_{n}.readLine(); }} catch (java.io.IOException e) {{ line = null; }}\n            if (line == null) {{ fs_{n}(\"10\"); return false; }}\n            up_{n}(line);\n            fs_{n}(\"00\");\n            return true;\n        }}\n");
+        o += &format!("        void wr_{n}() {{\n            String rec = pk_{n}() + \"\\n\";\n            if (fw_{n} != null) try {{ fw_{n}.write(rec); fw_{n}.flush(); }} catch (java.io.IOException e) {{ }}\n            fs_{n}(\"00\");\n        }}\n");
+        o += &format!("        String pk_{n}() {{\n{pack}            return sb.toString();\n        }}\n");
+        o += &format!("        void up_{n}(String line) {{\n{unpack}        }}\n");
     }
     o += "    }\n\n    public static String run() { return runWith(null); }\n\n    public static String runWith(Ext ext) {\n        State s = new State(ext);\n        s.main();\n        return s.out.toString();\n    }\n\n    public static void main(String[] args) { System.out.print(run()); }\n}\n";
     o
@@ -4314,5 +4466,24 @@ mod tests {
         let src = "       PROGRAM-ID. T.\n       PROCEDURE DIVISION.\n           OPEN INPUT F.\n           STOP RUN.\n";
         let p = parse(src, false);
         assert!(to_python(&p).contains("TODO(COBOL_to): 未対応の文 OPEN"));
+    }
+
+    #[test]
+    fn java_file_sort_sql_inspect_emitted() {
+        for (f, must) in [
+            ("fileio", vec!["void fo_out_file(", "boolean rd_in_file(", "void wr_out_file("]),
+            ("sort2", vec!["sortBuf(self.sort_buf", "String pk_srt(", "void up_srt("]),
+            ("sql1", vec!["public interface SqlHandler", "sqlCall(", "self.sqlCur.put("]),
+            ("sql7", vec!["self.sqlPrep.put("]),
+            ("inspect2", vec!["t0.substring(s0, e0)"]),
+        ] {
+            let src = std::fs::read_to_string(format!("tests/samples/{f}.cbl")).unwrap();
+            let j = to_java(&parse(&src, false), "P");
+            assert!(!j.contains("TODO(COBOL_to)"), "{f}: {j}");
+            for m in must {
+                assert!(j.contains(m), "{f}: {m}
+{j}");
+            }
+        }
     }
 }

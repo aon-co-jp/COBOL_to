@@ -407,3 +407,14 @@ Situação: uma ferramenta que detecta automaticamente o dialeto, o padrão e o 
 ## 2026-11-25 追記: MFastAPI は Mojo から使えること / Addendum: MFastAPI must be usable from Mojo
 **日本語**: MFastAPI は **Mojo から使用できる仕様**を保つ(Python 構文・Rust 実装・Mojo 対応、Windows では RMojo の `compat/wsl-bridge` 経由で WSL 上の Mojo を使う)。2MFastAPI の変換結果も Mojo から使えること。現状: `mojo/` は参照実装で、段階B・Cのサーバーは実験的。Mojo からの呼び出しの実機確認は、確認済みの範囲だけを「確認済み」と書く。11:30 まで確認なしで自動で進める。
 **English**: MFastAPI keeps the **specification of being usable from Mojo** (Python syntax, Rust core, Mojo support; on Windows the real Mojo in WSL is driven through RMojo's `compat/wsl-bridge`). Output of 2MFastAPI must be usable from Mojo too. Current state: `mojo/` is a reference implementation and its stage B/C servers are experimental. Only what was actually run is called "verified". Continue automatically without asking until 11:30.
+
+## 2026-11-26 追記: Java 出力のファイル入出力・SORT・SQL・範囲つき INSPECT / Java output: file I/O, SORT, SQL, scoped INSPECT
+**日本語**
+- `--target java` で、ファイル入出力(OPEN/CLOSE/READ/WRITE、固定長レコード・FILE STATUS)、SORT/MERGE(RELEASE/RETURN、入力・出力手続き)、EXEC SQL(SELECT INTO・カーソル・指示変数・PREPARE/EXECUTE・EXECUTE IMMEDIATE)、AFTER/BEFORE つき INSPECT を、Rust 版と同じ動きで出力するようにした。TODO の注記は出なくなった。
+- SQL の実行先は生成クラスの `setSqlHandler(SqlHandler)` で登録する(未登録なら SQLCODE=-1)。Java には標準の sqlite が無いため、試験では Python 版と同じ sqlite3 の既定処理を橋渡しで呼ぶハンドラーを登録して比べた。
+- **確認済み(javac・java で実行し、Python 出力と比較)**: fileio・inspect2・merge1・sort1・sort2・sql1〜7 の12本が一致。ほかに hello・calc・comp3・eval・eval2・features・search1 も一致。misc は Python 側が例外で止まるため比較対象外。生成サーバーは hello 200・未知 404・不正JSON 400・GET 405、fileio も 200 を確認。`cargo test` 26件成功。
+
+**English**
+- `--target java` now emits file I/O (OPEN/CLOSE/READ/WRITE, fixed-width records, FILE STATUS), SORT/MERGE (RELEASE/RETURN, input/output procedures), EXEC SQL (SELECT INTO, cursors, indicators, PREPARE/EXECUTE, EXECUTE IMMEDIATE) and INSPECT with AFTER/BEFORE, behaving like the Rust output. No TODO notes remain for these.
+- Register the SQL backend with the generated class's `setSqlHandler(SqlHandler)` (SQLCODE -1 when none). Java has no built-in sqlite, so the test registered a handler that bridges to the same sqlite3 default as the Python output.
+- **Verified (javac/java, compared with the Python output)**: fileio, inspect2, merge1, sort1, sort2 and sql1-7 (12) match; hello, calc, comp3, eval, eval2, features and search1 also match. misc is excluded because the Python side stops with an exception. The generated server returns hello 200, unknown 404, bad JSON 400, GET 405, and fileio 200. `cargo test`: 26 passed.
